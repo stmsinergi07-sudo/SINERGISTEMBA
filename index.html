@@ -405,9 +405,20 @@
 
             btnSubmit.disabled = true; btnSubmit.innerHTML = "Memproses...";
 
+            // Penundaan acak (0.5 - 1 detik) untuk memberi waktu sinkronisasi Firebase & memecah Race Condition
+            await new Promise(r => setTimeout(r, 500 + Math.random() * 500));
+
+            // Kalkulasi ulang nomor pendaftaran tepat sebelum menyimpan
             const existingNums = state.siswa.map(s => parseInt(s.noPendaftaran)).filter(n => !isNaN(n));
             const nextNum = Math.max(existingNums.length > 0 ? Math.max(...existingNums) : 0, parseInt(activeGelombang.startId) || 1000) + 1;
             const noPendaftaran = nextNum.toString();
+            
+            // Verifikasi Final: Pastikan benar-benar tidak ada yang memakai nomor ini
+            if (state.siswa.find(s => s.noPendaftaran === noPendaftaran)) {
+                btnSubmit.disabled = false; btnSubmit.innerHTML = "Kirim Formulir Pendaftaran";
+                return showToast("Sistem sedang sibuk memproses pendaftar lain. Silakan klik Kirim sekali lagi.", "error");
+            }
+
             const toUpper = (str) => str ? str.toUpperCase() : '';
 
             const newSiswa = {
