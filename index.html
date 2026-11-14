@@ -31,13 +31,15 @@
         #app-root { position: fixed !important; top: 0 !important; left: 0 !important; width: 100vw !important; height: 100vh !important; z-index: 9999999 !important; margin: 0 !important; padding: 0 !important; }
 
         @page { size: A4 portrait; margin: 15mm; }
+        /* Perbaikan Cetak Kompatibel Penuh untuk iOS Safari, Chrome, & Semua Device */
+        body.printing, html.printing { overflow: visible !important; height: auto !important; background: white !important; color: black !important; }
+        body.printing #app-root { display: none !important; }
+        body.printing #print-buffer { display: block !important; position: relative !important; width: 100% !important; left: 0 !important; top: 0 !important; background: white !important; z-index: 999999999 !important; }
         @media print {
-            body.printing { background: white !important; color: black !important; margin: 0 !important; padding: 0 !important; }
-            body.printing * { visibility: hidden !important; }
-            body.printing #app-root { display: none !important; }
-            body.printing #print-buffer, body.printing #print-buffer * { visibility: visible !important; }
-            body.printing #print-buffer { position: absolute !important; left: 0 !important; top: 0 !important; width: 100% !important; display: block !important; }
-            .no-print { display: none !important; }
+            html, body { background: white !important; color: black !important; margin: 0 !important; padding: 0 !important; overflow: visible !important; height: auto !important; }
+            #app-root, #toast-container, .no-print { display: none !important; }
+            #print-buffer, #print-buffer * { visibility: visible !important; }
+            #print-buffer { position: absolute !important; left: 0 !important; top: 0 !important; width: 100% !important; display: block !important; }
         }
     </style>
 </head>
@@ -67,7 +69,7 @@
 
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, deleteDoc, onSnapshot, collection } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, setDoc, deleteDoc, onSnapshot, collection, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         let db, auth;
         if (!IS_PREVIEW) {
@@ -76,10 +78,22 @@
             auth = getAuth(app);
         }
 
+        // Revisi 3 & 7: Menyimpan sesi login agar siswa tidak ter-logout otomatis & fallback Link WA Utama
+        const DEFAULT_WA_GLOBAL = 'https://chat.whatsapp.com/KTxEAzJ7UTo7Q1g2LqiGFh?s=qt&p=a&iam=2';
         const state = {
-            role: null, siswaId: null, gelombang: [], jurusan: [], guru: [], siswa: [],
-            settings: { staffAccounts: { finance: { user: 'finance', pass: '2027' }, seragam: { user: 'seragam', pass: '2027' } }, waLinkGlobal: '' },
+            role: localStorage.getItem('spmb_role') || null, 
+            siswaId: localStorage.getItem('spmb_siswaId') || null, 
+            gelombang: [], jurusan: [], guru: [], siswa: [], siswaTrash: [], allSiswaRaw: [],
+            isDataLoaded: false,
+            settings: { staffAccounts: { finance: { user: 'finance', pass: '2027' }, seragam: { user: 'seragam', pass: '2027' } }, waLinkGlobal: DEFAULT_WA_GLOBAL },
             theme: localStorage.getItem('theme') || 'light'
+        };
+
+        window.saveSession = (role, siswaId = null) => {
+            state.role = role;
+            state.siswaId = siswaId;
+            if (role) localStorage.setItem('spmb_role', role); else localStorage.removeItem('spmb_role');
+            if (siswaId) localStorage.setItem('spmb_siswaId', siswaId); else localStorage.removeItem('spmb_siswaId');
         };
 
         window.showToast = function(message, type = 'success') {
@@ -102,14 +116,31 @@
         const getCollectionPath = (colName) => IS_PREVIEW ? `/artifacts/${appId}/public/data/${colName}` : colName;
 
         async function initAuthAndData() {
-            if (IS_PREVIEW) { render(); return; }
+            if (IS_PREVIEW) { state.isDataLoaded = true; render(); return; }
             try {
-                await signInAnonymously(auth);
+                if (!auth.currentUser) {
+                    await signInAnonymously(auth);
+                }
                 const cols = ['gelombang', 'jurusan', 'guru', 'siswa', 'settings'];
                 cols.forEach(colName => {
                     onSnapshot(collection(db, getCollectionPath(colName)), (snapshot) => {
-                        if (colName === 'settings') { snapshot.docs.forEach(doc => { if (doc.id === 'main') state.settings = { ...state.settings, ...doc.data() }; }); } 
-                        else { state[colName] = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })); }
+                        if (colName === 'settings') { 
+                            snapshot.docs.forEach(doc => { 
+                                if (doc.id === 'main') {
+                                    const data = doc.data();
+                                    state.settings = { ...state.settings, ...data, waLinkGlobal: data.waLinkGlobal || DEFAULT_WA_GLOBAL }; 
+                                }
+                            }); 
+                        } else if (colName === 'siswa') {
+                            // Revisi 4: Memisahkan siswa aktif dan siswa di keranjang sampah (soft delete)
+                            const allDocs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                            state.allSiswaRaw = allDocs;
+                            state.siswa = allDocs.filter(x => !x.isDeleted);
+                            state.siswaTrash = allDocs.filter(x => x.isDeleted);
+                            state.isDataLoaded = true;
+                        } else { 
+                            state[colName] = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })); 
+                        }
                         render();
                     });
                 });
@@ -123,7 +154,24 @@
             return id;
         }
         
-        window.deleteDocHandler = async (colName, id) => { if(confirm('Yakin hapus data ini permanen?')) { try { await deleteDoc(doc(db, getCollectionPath(colName), id)); showToast('Data dihapus', 'success'); } catch(e) { showToast('Gagal: ' + e.message, 'error'); } } };
+        // Revisi 4: Handler untuk memindahkan siswa ke Sampah, memulihkan, dan menghapus permanen
+        window.softDeleteSiswa = async (id) => {
+            if(confirm('Pindahkan data siswa ini ke Storage Sampah?')) {
+                try {
+                    await saveDoc('siswa', { isDeleted: true, deletedAt: Date.now() }, id);
+                    showToast('Data dipindahkan ke Sampah', 'success');
+                } catch(e) { showToast('Gagal: ' + e.message, 'error'); }
+            }
+        };
+
+        window.restoreSiswa = async (id) => {
+            try {
+                await saveDoc('siswa', { isDeleted: false, deletedAt: null }, id);
+                showToast('Data siswa berhasil dipulihkan!', 'success');
+            } catch(e) { showToast('Gagal: ' + e.message, 'error'); }
+        };
+
+        window.deleteDocHandler = async (colName, id) => { if(confirm('Yakin hapus data ini permanen? Data tidak dapat dikembalikan!')) { try { await deleteDoc(doc(db, getCollectionPath(colName), id)); showToast('Data dihapus permanen', 'success'); } catch(e) { showToast('Gagal: ' + e.message, 'error'); } } };
 
         const root = document.getElementById('app-root');
         window.render = render;
@@ -232,6 +280,8 @@
             const activeGelombang = state.gelombang.find(g => g.isActive);
             const jurusanOptions = state.jurusan.map(j => `<option value="${j.id}">${j.name}</option>`).join('');
 
+            // Revisi 8: Menambahkan autocomplete="off" pada form & seluruh input untuk menghilangkan pop-up simpan identitas/autofill browser
+            // Revisi 2: Menambahkan atribut required pada Pilihan Jurusan 2
             return `
                 <div class="flex-grow overflow-y-auto relative p-4 md:p-8 flex flex-col items-center">
                     <div class="w-full max-w-4xl flex justify-between items-center mb-6">
@@ -260,38 +310,38 @@
                     <div class="w-full max-w-3xl glass rounded-3xl p-6 md:p-8 shadow-xl mb-12">
                         ${!activeGelombang ? `<div class="text-center py-10 text-red-500 font-bold text-xl"><i class="ph ph-warning-circle text-4xl mb-2"></i><br>Pendaftaran Sedang Ditutup</div>` : 
                             `<h2 class="text-2xl font-bold mb-6 border-b pb-3 text-center tracking-tight">Formulir Pendaftaran</h2>
-                            <form id="spmbForm" onsubmit="handleRegisterBaru(event)" class="space-y-6">
+                            <form id="spmbForm" autocomplete="off" onsubmit="handleRegisterBaru(event)" class="space-y-6">
                                 <div class="bg-white/50 dark:bg-black/20 p-5 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
                                     <h3 class="font-bold text-primaryDark dark:text-primary mb-4 flex items-center gap-2"><i class="ph ph-buildings text-lg"></i> DATA SEKOLAH (SMP/MTs)</h3>
                                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        <div><label class="block text-xs font-semibold mb-1">Asal Sekolah</label><input type="text" id="spmbAsalSekolah" required class="w-full p-2.5 text-sm rounded-xl border bg-white dark:bg-darkCard dark:border-gray-600 uppercase focus:border-primary outline-none transition-colors"></div>
-                                        <div><label class="block text-xs font-semibold mb-1">Provinsi</label><input type="text" id="spmbProvSekolah" required class="w-full p-2.5 text-sm rounded-xl border bg-white dark:bg-darkCard dark:border-gray-600 uppercase focus:border-primary outline-none transition-colors"></div>
-                                        <div><label class="block text-xs font-semibold mb-1">Kabupaten</label><input type="text" id="spmbKabSekolah" required class="w-full p-2.5 text-sm rounded-xl border bg-white dark:bg-darkCard dark:border-gray-600 uppercase focus:border-primary outline-none transition-colors"></div>
-                                        <div><label class="block text-xs font-semibold mb-1">Kecamatan</label><input type="text" id="spmbKecSekolah" required class="w-full p-2.5 text-sm rounded-xl border bg-white dark:bg-darkCard dark:border-gray-600 uppercase focus:border-primary outline-none transition-colors"></div>
+                                        <div><label class="block text-xs font-semibold mb-1">Asal Sekolah</label><input type="text" id="spmbAsalSekolah" autocomplete="off" required class="w-full p-2.5 text-sm rounded-xl border bg-white dark:bg-darkCard dark:border-gray-600 uppercase focus:border-primary outline-none transition-colors"></div>
+                                        <div><label class="block text-xs font-semibold mb-1">Provinsi</label><input type="text" id="spmbProvSekolah" autocomplete="off" required class="w-full p-2.5 text-sm rounded-xl border bg-white dark:bg-darkCard dark:border-gray-600 uppercase focus:border-primary outline-none transition-colors"></div>
+                                        <div><label class="block text-xs font-semibold mb-1">Kabupaten</label><input type="text" id="spmbKabSekolah" autocomplete="off" required class="w-full p-2.5 text-sm rounded-xl border bg-white dark:bg-darkCard dark:border-gray-600 uppercase focus:border-primary outline-none transition-colors"></div>
+                                        <div><label class="block text-xs font-semibold mb-1">Kecamatan</label><input type="text" id="spmbKecSekolah" autocomplete="off" required class="w-full p-2.5 text-sm rounded-xl border bg-white dark:bg-darkCard dark:border-gray-600 uppercase focus:border-primary outline-none transition-colors"></div>
                                     </div>
                                 </div>
                                 
                                 <div class="bg-white/50 dark:bg-black/20 p-5 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
                                     <h3 class="font-bold text-primaryDark dark:text-primary mb-4 flex items-center gap-2"><i class="ph ph-user text-lg"></i> DATA CALON SISWA</h3>
                                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        <div><label class="block text-xs font-semibold mb-1">Nama Peserta</label><input type="text" id="spmbName" required class="w-full p-2.5 text-sm rounded-xl border bg-white dark:bg-darkCard dark:border-gray-600 uppercase focus:border-primary outline-none transition-colors"></div>
+                                        <div><label class="block text-xs font-semibold mb-1">Nama Peserta</label><input type="text" id="spmbName" autocomplete="off" required class="w-full p-2.5 text-sm rounded-xl border bg-white dark:bg-darkCard dark:border-gray-600 uppercase focus:border-primary outline-none transition-colors"></div>
                                         <div>
                                             <label class="block text-xs font-semibold mb-1">NISN (10 Digit)</label>
-                                            <input type="text" id="spmbNisn" required pattern="[0-9]{10}" minlength="10" maxlength="10" class="w-full p-2.5 text-sm rounded-xl border bg-white dark:bg-darkCard dark:border-gray-600 focus:border-primary outline-none transition-colors">
+                                            <input type="text" id="spmbNisn" autocomplete="off" required pattern="[0-9]{10}" minlength="10" maxlength="10" class="w-full p-2.5 text-sm rounded-xl border bg-white dark:bg-darkCard dark:border-gray-600 focus:border-primary outline-none transition-colors">
                                             <p class="text-[10px] text-gray-500 mt-1">* NISN dapat dilihat di Ijazah SD/SMP</p>
                                         </div>
                                         <div><label class="block text-xs font-semibold mb-1">Jenis Kelamin</label>
-                                            <select id="spmbJk" required class="w-full p-2.5 text-sm rounded-xl border bg-white dark:bg-darkCard dark:border-gray-600 focus:border-primary outline-none transition-colors"><option value="">Pilih...</option><option value="Laki-laki">Laki-laki</option><option value="Perempuan">Perempuan</option></select>
+                                            <select id="spmbJk" autocomplete="off" required class="w-full p-2.5 text-sm rounded-xl border bg-white dark:bg-darkCard dark:border-gray-600 focus:border-primary outline-none transition-colors"><option value="">Pilih...</option><option value="Laki-laki">Laki-laki</option><option value="Perempuan">Perempuan</option></select>
                                         </div>
                                         <div>
                                             <label class="block text-xs font-semibold mb-1">NIK (16 Digit)</label>
-                                            <input type="text" id="spmbNik" required pattern="[0-9]{16}" minlength="16" maxlength="16" class="w-full p-2.5 text-sm rounded-xl border bg-white dark:bg-darkCard dark:border-gray-600 focus:border-primary outline-none transition-colors">
+                                            <input type="text" id="spmbNik" autocomplete="off" required pattern="[0-9]{16}" minlength="16" maxlength="16" class="w-full p-2.5 text-sm rounded-xl border bg-white dark:bg-darkCard dark:border-gray-600 focus:border-primary outline-none transition-colors">
                                             <p class="text-[10px] text-gray-500 mt-1">* NIK dapat dilihat di Kartu Keluarga (KK)</p>
                                         </div>
-                                        <div><label class="block text-xs font-semibold mb-1">Tempat Lahir</label><input type="text" id="spmbTempatLahir" required class="w-full p-2.5 text-sm rounded-xl border bg-white dark:bg-darkCard dark:border-gray-600 uppercase focus:border-primary outline-none transition-colors"></div>
-                                        <div><label class="block text-xs font-semibold mb-1">Tanggal Lahir</label><input type="date" id="spmbTanggalLahir" max="2015-12-31" required class="w-full p-2.5 text-sm rounded-xl border bg-white dark:bg-darkCard dark:border-gray-600 focus:border-primary outline-none transition-colors"></div>
+                                        <div><label class="block text-xs font-semibold mb-1">Tempat Lahir</label><input type="text" id="spmbTempatLahir" autocomplete="off" required class="w-full p-2.5 text-sm rounded-xl border bg-white dark:bg-darkCard dark:border-gray-600 uppercase focus:border-primary outline-none transition-colors"></div>
+                                        <div><label class="block text-xs font-semibold mb-1">Tanggal Lahir</label><input type="date" id="spmbTanggalLahir" autocomplete="off" max="2015-12-31" required class="w-full p-2.5 text-sm rounded-xl border bg-white dark:bg-darkCard dark:border-gray-600 focus:border-primary outline-none transition-colors"></div>
                                         <div class="md:col-span-2"><label class="block text-xs font-semibold mb-1">Agama</label>
-                                            <select id="spmbAgama" required class="w-full p-2.5 text-sm rounded-xl border bg-white dark:bg-darkCard dark:border-gray-600 focus:border-primary outline-none transition-colors"><option value="">Pilih Agama</option><option value="ISLAM">ISLAM</option><option value="KRISTEN">KRISTEN</option><option value="KATOLIK">KATOLIK</option><option value="HINDU">HINDU</option><option value="BUDDHA">BUDDHA</option><option value="KONGHUCU">KONGHUCU</option></select>
+                                            <select id="spmbAgama" autocomplete="off" required class="w-full p-2.5 text-sm rounded-xl border bg-white dark:bg-darkCard dark:border-gray-600 focus:border-primary outline-none transition-colors"><option value="">Pilih Agama</option><option value="ISLAM">ISLAM</option><option value="KRISTEN">KRISTEN</option><option value="KATOLIK">KATOLIK</option><option value="HINDU">HINDU</option><option value="BUDDHA">BUDDHA</option><option value="KONGHUCU">KONGHUCU</option></select>
                                         </div>
                                     </div>
                                 </div>
@@ -299,21 +349,21 @@
                                 <div class="bg-white/50 dark:bg-black/20 p-5 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
                                     <h3 class="font-bold text-primaryDark dark:text-primary mb-4 flex items-center gap-2"><i class="ph ph-users-three text-lg"></i> DATA ORANG TUA</h3>
                                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        <div class="md:col-span-2"><label class="block text-xs font-semibold mb-1">Nama Ibu Kandung</label><input type="text" id="spmbNamaIbu" required class="w-full p-2.5 text-sm rounded-xl border bg-white dark:bg-darkCard dark:border-gray-600 uppercase focus:border-primary outline-none transition-colors"></div>
-                                        <div class="md:col-span-2"><label class="block text-xs font-semibold mb-1">Alamat (Jalan/Dusun)</label><input type="text" id="spmbAlamatOrtu" required class="w-full p-2.5 text-sm rounded-xl border bg-white dark:bg-darkCard dark:border-gray-600 uppercase focus:border-primary outline-none transition-colors"></div>
-                                        <div><label class="block text-xs font-semibold mb-1">Desa/Kelurahan</label><input type="text" id="spmbDesaOrtu" required class="w-full p-2.5 text-sm rounded-xl border bg-white dark:bg-darkCard dark:border-gray-600 uppercase focus:border-primary outline-none transition-colors"></div>
-                                        <div><label class="block text-xs font-semibold mb-1">Kecamatan</label><input type="text" id="spmbKecOrtu" required class="w-full p-2.5 text-sm rounded-xl border bg-white dark:bg-darkCard dark:border-gray-600 uppercase focus:border-primary outline-none transition-colors"></div>
-                                        <div><label class="block text-xs font-semibold mb-1">Kabupaten</label><input type="text" id="spmbKabOrtu" required class="w-full p-2.5 text-sm rounded-xl border bg-white dark:bg-darkCard dark:border-gray-600 uppercase focus:border-primary outline-none transition-colors"></div>
-                                        <div><label class="block text-xs font-semibold mb-1">Provinsi</label><input type="text" id="spmbProvOrtu" required class="w-full p-2.5 text-sm rounded-xl border bg-white dark:bg-darkCard dark:border-gray-600 uppercase focus:border-primary outline-none transition-colors"></div>
-                                        <div class="md:col-span-2"><label class="block text-xs font-semibold mb-1">No. Telepon (HP)</label><input type="number" id="spmbHpOrtu" required class="w-full p-2.5 text-sm rounded-xl border bg-white dark:bg-darkCard dark:border-gray-600 focus:border-primary outline-none transition-colors"></div>
+                                        <div class="md:col-span-2"><label class="block text-xs font-semibold mb-1">Nama Ibu Kandung</label><input type="text" id="spmbNamaIbu" autocomplete="off" required class="w-full p-2.5 text-sm rounded-xl border bg-white dark:bg-darkCard dark:border-gray-600 uppercase focus:border-primary outline-none transition-colors"></div>
+                                        <div class="md:col-span-2"><label class="block text-xs font-semibold mb-1">Alamat (Jalan/Dusun)</label><input type="text" id="spmbAlamatOrtu" autocomplete="off" required class="w-full p-2.5 text-sm rounded-xl border bg-white dark:bg-darkCard dark:border-gray-600 uppercase focus:border-primary outline-none transition-colors"></div>
+                                        <div><label class="block text-xs font-semibold mb-1">Desa/Kelurahan</label><input type="text" id="spmbDesaOrtu" autocomplete="off" required class="w-full p-2.5 text-sm rounded-xl border bg-white dark:bg-darkCard dark:border-gray-600 uppercase focus:border-primary outline-none transition-colors"></div>
+                                        <div><label class="block text-xs font-semibold mb-1">Kecamatan</label><input type="text" id="spmbKecOrtu" autocomplete="off" required class="w-full p-2.5 text-sm rounded-xl border bg-white dark:bg-darkCard dark:border-gray-600 uppercase focus:border-primary outline-none transition-colors"></div>
+                                        <div><label class="block text-xs font-semibold mb-1">Kabupaten</label><input type="text" id="spmbKabOrtu" autocomplete="off" required class="w-full p-2.5 text-sm rounded-xl border bg-white dark:bg-darkCard dark:border-gray-600 uppercase focus:border-primary outline-none transition-colors"></div>
+                                        <div><label class="block text-xs font-semibold mb-1">Provinsi</label><input type="text" id="spmbProvOrtu" autocomplete="off" required class="w-full p-2.5 text-sm rounded-xl border bg-white dark:bg-darkCard dark:border-gray-600 uppercase focus:border-primary outline-none transition-colors"></div>
+                                        <div class="md:col-span-2"><label class="block text-xs font-semibold mb-1">No. Telepon (HP)</label><input type="number" id="spmbHpOrtu" autocomplete="off" required class="w-full p-2.5 text-sm rounded-xl border bg-white dark:bg-darkCard dark:border-gray-600 focus:border-primary outline-none transition-colors"></div>
                                     </div>
                                 </div>
                                 
                                 <div class="bg-primary/5 p-5 rounded-2xl border border-primary/20 shadow-sm">
                                     <h3 class="font-bold text-primaryDark dark:text-primary mb-4 flex items-center gap-2"><i class="ph ph-books text-lg"></i> PILIHAN JURUSAN</h3>
                                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        <div><label class="block text-xs font-semibold mb-1">Pilihan Jurusan 1</label><select id="spmbJurusan1" required onchange="window.updateJurusan2Baru()" class="w-full p-2.5 text-sm rounded-xl border bg-white dark:bg-darkCard dark:border-gray-600 focus:border-primary outline-none transition-colors"><option value="">Pilih...</option>${jurusanOptions}</select></div>
-                                        <div><label class="block text-xs font-semibold mb-1">Pilihan Jurusan 2</label><select id="spmbJurusan2" class="w-full p-2.5 text-sm rounded-xl border bg-white dark:bg-darkCard dark:border-gray-600 focus:border-primary outline-none transition-colors"><option value="">Pilih...</option>${jurusanOptions}</select></div>
+                                        <div><label class="block text-xs font-semibold mb-1">Pilihan Jurusan 1</label><select id="spmbJurusan1" autocomplete="off" required onchange="window.updateJurusan2Baru()" class="w-full p-2.5 text-sm rounded-xl border bg-white dark:bg-darkCard dark:border-gray-600 focus:border-primary outline-none transition-colors"><option value="">Pilih...</option>${jurusanOptions}</select></div>
+                                        <div><label class="block text-xs font-semibold mb-1">Pilihan Jurusan 2</label><select id="spmbJurusan2" autocomplete="off" required class="w-full p-2.5 text-sm rounded-xl border bg-white dark:bg-darkCard dark:border-gray-600 focus:border-primary outline-none transition-colors"><option value="">Pilih...</option>${jurusanOptions}</select></div>
                                     </div>
                                 </div>
                                 
@@ -327,23 +377,23 @@
                     <div class="bg-white dark:bg-darkCard w-full max-w-md rounded-3xl p-8 shadow-2xl relative">
                         <button type="button" onclick="closeModal('login-modal')" class="absolute top-4 right-4 text-gray-500 hover:text-red-500 bg-gray-100 dark:bg-gray-800 p-2 rounded-full transition-colors"><i class="ph ph-x text-xl"></i></button>
                         <h3 class="text-2xl font-black mb-6 text-center tracking-tight" id="login-title">Login</h3>
-                        <form id="loginForm" onsubmit="handleLogin(event)" class="space-y-5">
+                        <form id="loginForm" autocomplete="off" onsubmit="handleLogin(event)" class="space-y-5">
                             <input type="hidden" id="loginRole">
                             
                             <div id="loginEmailContainer" class="hidden">
                                 <label class="block text-sm font-semibold mb-1 text-gray-600 dark:text-gray-300" id="labelUsername">Email / Username</label>
-                                <input type="text" id="loginEmail" class="w-full p-3 rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 focus:border-primary outline-none transition-colors">
+                                <input type="text" id="loginEmail" autocomplete="off" class="w-full p-3 rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 focus:border-primary outline-none transition-colors">
                             </div>
 
                             <div id="loginIdContainer" class="hidden">
                                 <label class="block text-sm font-semibold mb-1 text-gray-600 dark:text-gray-300">Nomor Pendaftaran</label>
-                                <input type="text" id="loginId" class="w-full p-3 rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 focus:border-primary outline-none transition-colors">
+                                <input type="text" id="loginId" autocomplete="off" class="w-full p-3 rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 focus:border-primary outline-none transition-colors">
                             </div>
 
                             <div id="loginPasswordContainer">
                                 <label class="block text-sm font-semibold mb-1 text-gray-600 dark:text-gray-300">Password</label>
                                 <div class="relative">
-                                    <input type="password" id="loginPassword" class="w-full p-3 rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 focus:border-primary outline-none transition-colors pr-10">
+                                    <input type="password" id="loginPassword" autocomplete="new-password" class="w-full p-3 rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 focus:border-primary outline-none transition-colors pr-10">
                                     <button type="button" onclick="togglePassword()" class="absolute right-3 top-3.5 text-gray-400 hover:text-gray-600"><i class="ph ph-eye text-lg" id="eyeIcon"></i></button>
                                 </div>
                             </div>
@@ -390,12 +440,14 @@
         window.closeModal = (id) => document.getElementById(id).classList.add('hidden');
         window.togglePassword = () => { const input = document.getElementById('loginPassword'); const icon = document.getElementById('eyeIcon'); if (input.type === 'password') { input.type = 'text'; icon.classList.replace('ph-eye', 'ph-eye-slash'); } else { input.type = 'password'; icon.classList.replace('ph-eye-slash', 'ph-eye'); } };
 
+        // Revisi 1 & 2: Pendaftaran menggunakan Atomic Transaction Server-Side (100% Bebas Nomor Ganda) & Validasi Wajib Jurusan 2
         window.handleRegisterBaru = async (e) => {
             e.preventDefault();
             const formElement = e.target; const btnSubmit = document.getElementById('btnSubmitFormBaru');
             const nisn = document.getElementById('spmbNisn').value; if (nisn.length !== 10) return showToast("NISN harus 10 digit!", "error");
             const jur1 = document.getElementById('spmbJurusan1').value; const jur2 = document.getElementById('spmbJurusan2').value;
-            if (jur1 === jur2 && jur1 !== "") return showToast("Pilihan Jurusan tidak boleh sama!", "error");
+            if (!jur1 || !jur2) return showToast("Pilihan Jurusan 1 dan 2 wajib diisi!", "error");
+            if (jur1 === jur2) return showToast("Pilihan Jurusan tidak boleh sama!", "error");
 
             const exists = state.siswa.find(s => s.nisn === nisn);
             if (exists) return showToast(`Data Kembar! NISN terdaftar di No: ${exists.noPendaftaran}`, "error");
@@ -405,45 +457,82 @@
 
             btnSubmit.disabled = true; btnSubmit.innerHTML = "Memproses...";
 
-            // Penundaan acak (0.5 - 1 detik) untuk memberi waktu sinkronisasi Firebase & memecah Race Condition
-            await new Promise(r => setTimeout(r, 500 + Math.random() * 500));
-
-            // Kalkulasi ulang nomor pendaftaran tepat sebelum menyimpan
-            const existingNums = state.siswa.map(s => parseInt(s.noPendaftaran)).filter(n => !isNaN(n));
-            const nextNum = Math.max(existingNums.length > 0 ? Math.max(...existingNums) : 0, parseInt(activeGelombang.startId) || 1000) + 1;
-            const noPendaftaran = nextNum.toString();
-            
-            // Verifikasi Final: Pastikan benar-benar tidak ada yang memakai nomor ini
-            if (state.siswa.find(s => s.noPendaftaran === noPendaftaran)) {
-                btnSubmit.disabled = false; btnSubmit.innerHTML = "Kirim Formulir Pendaftaran";
-                return showToast("Sistem sedang sibuk memproses pendaftar lain. Silakan klik Kirim sekali lagi.", "error");
-            }
-
             const toUpper = (str) => str ? str.toUpperCase() : '';
 
-            const newSiswa = {
-                noPendaftaran, gelombangId: null, gelombangName: null, 
+            const baseSiswa = {
+                gelombangId: null, gelombangName: null, 
                 asalSekolah: toUpper(document.getElementById('spmbAsalSekolah').value), provSekolah: toUpper(document.getElementById('spmbProvSekolah').value), kabSekolah: toUpper(document.getElementById('spmbKabSekolah').value), kecSekolah: toUpper(document.getElementById('spmbKecSekolah').value),
                 name: toUpper(document.getElementById('spmbName').value), nisn: nisn, jk: document.getElementById('spmbJk').value, nik: document.getElementById('spmbNik').value, tempatLahir: toUpper(document.getElementById('spmbTempatLahir').value), tanggalLahir: document.getElementById('spmbTanggalLahir').value, agama: document.getElementById('spmbAgama').value,
                 namaIbu: toUpper(document.getElementById('spmbNamaIbu').value), alamatOrtu: toUpper(document.getElementById('spmbAlamatOrtu').value), desaOrtu: toUpper(document.getElementById('spmbDesaOrtu').value), kecOrtu: toUpper(document.getElementById('spmbKecOrtu').value), kabOrtu: toUpper(document.getElementById('spmbKabOrtu').value), provOrtu: toUpper(document.getElementById('spmbProvOrtu').value), hpOrtu: document.getElementById('spmbHpOrtu').value,
-                jurusan1: jur1, jurusan2: jur2 || "", guruId: null, checklist1: false, checklist2: false,
+                jurusan1: jur1, jurusan2: jur2, guruId: null, checklist1: false, checklist2: false, isDeleted: false,
                 seragam: { putihAbu: false, almamater: false, pramuka: false, olahraga: false, praktik: false, topi: false, sabuk: false, bet: false },
                 createdAt: Date.now(), tanggalDaftar: Date.now()
             };
 
             try {
-                const savedId = await saveDoc('siswa', newSiswa); newSiswa.id = savedId;
-                formElement.reset(); Array.from(document.getElementById('spmbJurusan2').options).forEach(opt => opt.disabled = false);
-                showSuccessRegistration(newSiswa);
-            } catch (error) { showToast("Pendaftaran gagal: " + error.message, "error"); } 
-            finally { btnSubmit.disabled = false; btnSubmit.innerHTML = "Kirim Formulir Pendaftaran"; }
+                let finalSiswa = null;
+
+                if (IS_PREVIEW) {
+                    const existingNums = state.allSiswaRaw.map(s => parseInt(s.noPendaftaran)).filter(n => !isNaN(n));
+                    const nextNum = Math.max(existingNums.length > 0 ? Math.max(...existingNums) : 0, parseInt(activeGelombang.startId) || 1000) + 1;
+                    finalSiswa = { ...baseSiswa, id: generateId(), noPendaftaran: nextNum.toString() };
+                    state.siswa.push(finalSiswa);
+                    state.allSiswaRaw.push(finalSiswa);
+                } else {
+                    // Sistem Kunci Antrean Server (Atomic Transaction) + Kunci ID Dokumen berbasis Nomor Pendaftaran
+                    const counterRef = doc(db, getCollectionPath('settings'), 'counter_pendaftaran');
+                    
+                    await runTransaction(db, async (transaction) => {
+                        const counterDoc = await transaction.get(counterRef);
+                        const existingNums = state.allSiswaRaw.map(s => parseInt(s.noPendaftaran)).filter(n => !isNaN(n));
+                        const maxLocal = existingNums.length > 0 ? Math.max(...existingNums) : 0;
+                        const startBase = parseInt(activeGelombang.startId) || 1000;
+                        
+                        let lastServerNum = 0;
+                        if (counterDoc.exists() && counterDoc.data().lastNo) {
+                            lastServerNum = parseInt(counterDoc.data().lastNo) || 0;
+                        }
+
+                        let candidateNum = Math.max(lastServerNum, maxLocal, startBase) + 1;
+                        let candidateDocRef = doc(db, getCollectionPath('siswa'), `reg_${candidateNum}`);
+                        let candidateSnap = await transaction.get(candidateDocRef);
+
+                        // Jika dokumen dengan nomor tersebut sudah ada, cari nomor kosong berikutnya secara atomik
+                        while (candidateSnap.exists()) {
+                            candidateNum++;
+                            candidateDocRef = doc(db, getCollectionPath('siswa'), `reg_${candidateNum}`);
+                            candidateSnap = await transaction.get(candidateDocRef);
+                        }
+
+                        const noPendaftaran = candidateNum.toString();
+                        finalSiswa = { ...baseSiswa, id: `reg_${noPendaftaran}`, noPendaftaran };
+
+                        transaction.set(counterRef, { lastNo: candidateNum }, { merge: true });
+                        transaction.set(candidateDocRef, finalSiswa);
+                    });
+                }
+
+                formElement.reset(); 
+                Array.from(document.getElementById('spmbJurusan2').options).forEach(opt => opt.disabled = false);
+                showSuccessRegistration(finalSiswa);
+            } catch (error) { 
+                showToast("Pendaftaran gagal, silakan klik Kirim sekali lagi: " + error.message, "error"); 
+            } finally { 
+                btnSubmit.disabled = false; btnSubmit.innerHTML = "Kirim Formulir Pendaftaran"; 
+            }
         };
 
+        // Revisi 7: Memuat (preload) gambar QR Code sejak pop-up sukses muncul agar saat langsung dicetak pertama kali, QR Code sudah siap 100%
         function showSuccessRegistration(siswa) {
             const overlay = document.createElement('div'); overlay.className = "fixed inset-0 bg-black/80 flex items-center justify-center z-[99999999] px-4 backdrop-blur-sm";
             window._tempPrintSiswa = siswa;
+            const waLinkGlobal = state.settings?.waLinkGlobal || DEFAULT_WA_GLOBAL;
+            const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(waLinkGlobal)}`;
+            const preloadImg = new Image(); preloadImg.src = qrUrl;
+
             overlay.innerHTML = `
                 <div class="bg-white dark:bg-darkCard w-full max-w-sm p-8 rounded-3xl text-center shadow-2xl relative">
+                    <img src="${qrUrl}" class="hidden" alt="Preload QR">
                     <div class="w-20 h-20 bg-emerald-100 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner"><i class="ph ph-check-circle text-5xl"></i></div>
                     <h2 class="text-2xl font-black mb-2 tracking-tight">Pendaftaran Berhasil!</h2>
                     <div class="bg-gray-50 dark:bg-gray-800 rounded-2xl p-5 mb-6 border border-gray-100 dark:border-gray-700">
@@ -465,24 +554,30 @@
             const pass = document.getElementById('loginPassword').value;
             
             if (role === 'admin') {
-                try { await signInWithEmailAndPassword(auth, document.getElementById('loginEmail').value, pass); state.role = role; } 
+                try { await signInWithEmailAndPassword(auth, document.getElementById('loginEmail').value, pass); window.saveSession(role); } 
                 catch (err) { return showToast("Gagal login admin", "error"); }
             } else if (role === 'siswa') {
                 const id = document.getElementById('loginId').value.trim();
                 const s = state.siswa.find(x => String(x.noPendaftaran).trim() === id);
                 if (s) {
                     const cleanName = (str) => (str || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
-                    if (cleanName(s.namaIbu) === cleanName(pass)) { state.role = role; state.siswaId = s.id; } 
+                    if (cleanName(s.namaIbu) === cleanName(pass)) { window.saveSession(role, s.id); } 
                     else { return showToast("Password (Nama Ibu) salah", "error"); }
                 } else return showToast("Nomor Pendaftaran tidak ditemukan", "error");
             } else {
                 const u = document.getElementById('loginEmail').value; const acc = state.settings.staffAccounts[role];
-                if (acc && acc.user === u && acc.pass === pass) state.role = role; else return showToast("Username / Password staf salah", "error");
+                if (acc && acc.user === u && acc.pass === pass) window.saveSession(role); else return showToast("Username / Password staf salah", "error");
             }
             closeModal('login-modal'); render();
         };
 
-        window.logout = () => { state.role = null; state.siswaId = null; if (!IS_PREVIEW && auth) signOut(auth); render(); };
+        window.logout = async () => { 
+            window.saveSession(null, null); 
+            if (!IS_PREVIEW && auth) {
+                try { await signOut(auth); await signInAnonymously(auth); } catch(e){}
+            }
+            render(); 
+        };
 
         // ==========================================
         // UI: LAYOUT DASHBOARD
@@ -492,10 +587,12 @@
             const isPremium = state.role !== 'siswa';
             
             if (state.role === 'admin') {
+                // Revisi 4: Menambahkan menu Sampah Siswa di navigasi Admin
                 navItems = [
                     { id: 'dash', icon: 'ph-squares-four', text: 'Beranda' }, { id: 'gel', icon: 'ph-clock', text: 'Gelombang' },
                     { id: 'jur', icon: 'ph-books', text: 'Jurusan' }, { id: 'guru', icon: 'ph-chalkboard-teacher', text: 'Data Guru' },
-                    { id: 'siswa', icon: 'ph-student', text: 'Data Siswa' }, { id: 'staff', icon: 'ph-sliders-horizontal', text: 'Pengaturan' }
+                    { id: 'siswa', icon: 'ph-student', text: 'Data Siswa' }, { id: 'sampah', icon: 'ph-trash', text: `Sampah (${state.siswaTrash.length})` },
+                    { id: 'staff', icon: 'ph-sliders-horizontal', text: 'Pengaturan' }
                 ];
                 content = renderAdmin();
             } else if (state.role === 'finance') {
@@ -550,7 +647,7 @@
         // ==========================================
         // UI COMPONENTS (ADMIN, FINANCE, SERAGAM)
         // ==========================================
-        window.adminFilters = { search: '', jurusan: '', gelombang: '', gender: '' };
+        window.adminFilters = { search: '', jurusan: '', gelombang: '', gender: '', searchTrash: '' };
         window.financeFilters = { search1: '', search2: '', jurusan1: '', jurusan2: '' };
         window.seragamFilters = { search: '', jurusan: '', status: 'belum' };
         
@@ -713,13 +810,54 @@
                                             <td class="p-4 text-center flex justify-center gap-2">
                                                 <button type="button" onclick="window.editSiswaAdmin('${s.id}')" class="text-blue-400 bg-blue-500/10 p-2 rounded-lg border border-blue-500/20 hover:bg-blue-500 hover:text-white transition-colors" title="Edit Data"><i class="ph ph-pencil-simple text-lg"></i></button>
                                                 <button type="button" onclick="window.printSiswaAdmin('${s.id}')" class="text-emerald-400 bg-emerald-500/10 p-2 rounded-lg border border-emerald-500/20 hover:bg-emerald-500 hover:text-white transition-colors" title="Cetak PDF"><i class="ph ph-printer text-lg"></i></button>
-                                                <button type="button" onclick="window.deleteDocHandler('siswa', '${s.id}')" class="text-red-400 bg-red-500/10 p-2 rounded-lg border border-red-500/20 hover:bg-red-500 hover:text-white transition-colors" title="Hapus"><i class="ph ph-trash text-lg"></i></button>
+                                                <button type="button" onclick="window.softDeleteSiswa('${s.id}')" class="text-red-400 bg-red-500/10 p-2 rounded-lg border border-red-500/20 hover:bg-red-500 hover:text-white transition-colors" title="Pindahkan ke Sampah"><i class="ph ph-trash text-lg"></i></button>
                                             </td>
                                         </tr>
                                     `).join('')}
                                 </tbody>
                             </table>
                             ${filteredSiswa.length === 0 ? '<div class="p-8 text-center text-gray-500">Tidak ada data ditemukan.</div>' : ''}
+                        </div>
+                    </div>
+                `;
+            } else if (tab === 'sampah') {
+                // Revisi 4: Tampilan Storage Sampah di Role Admin
+                const st = (window.adminFilters.searchTrash || '').toLowerCase();
+                const trashList = state.siswaTrash.filter(x => x.noPendaftaran.toLowerCase().includes(st) || x.name.toLowerCase().includes(st)).sort((a, b) => (parseInt(a.noPendaftaran) || 0) - (parseInt(b.noPendaftaran) || 0));
+
+                return `
+                    <div class="flex flex-col md:flex-row justify-between md:items-center mb-6 gap-4">
+                        <div>
+                            <h2 class="text-3xl font-black text-white tracking-tight">Storage Sampah Siswa</h2>
+                            <p class="text-gray-400 mt-1 text-sm">Data siswa yang dihapus disimpan sementara di sini sebelum dihapus permanen.</p>
+                        </div>
+                    </div>
+
+                    <div class="flex flex-wrap gap-3 mb-6 bg-[#111827] p-4 rounded-2xl border border-gray-800">
+                        <div class="relative flex-grow min-w-[200px]"><i class="ph ph-magnifying-glass absolute left-3 top-3 text-gray-500 text-lg"></i><input type="text" id="searchTrashAdmin" placeholder="Cari No Pendaftaran / Nama di Sampah..." oninput="window.adminFilters.searchTrash = this.value; render()" value="${window.adminFilters.searchTrash || ''}" class="w-full pl-10 pr-3 py-2.5 bg-gray-900 border border-gray-700 text-gray-200 rounded-xl text-sm focus:border-emerald-500 outline-none transition-colors"></div>
+                    </div>
+
+                    <div class="bg-[#111827] rounded-3xl border border-gray-800 overflow-hidden shadow-2xl">
+                        <div class="overflow-x-auto custom-scroll">
+                            <table class="w-full text-left text-sm whitespace-nowrap">
+                                <thead class="bg-gray-900 border-b border-gray-800 text-gray-400"><tr><th class="p-4 font-semibold">No</th><th class="p-4 font-semibold">No Daftar</th><th class="p-4 font-semibold">Nama Siswa</th><th class="p-4 font-semibold">Jurusan</th><th class="p-4 font-semibold">Waktu Dihapus</th><th class="p-4 font-semibold text-center">Aksi</th></tr></thead>
+                                <tbody class="divide-y divide-gray-800">
+                                    ${trashList.map((s, idx) => `
+                                        <tr class="hover:bg-gray-800/50 transition-colors">
+                                            <td class="p-4 text-gray-500 font-medium">${idx + 1}</td>
+                                            <td class="p-4 font-mono font-bold text-gray-300">${s.noPendaftaran}</td>
+                                            <td class="p-4 font-bold text-white">${s.name}</td>
+                                            <td class="p-4 text-gray-300">${state.jurusan.find(j=>j.id===s.jurusan1)?.name || '-'}</td>
+                                            <td class="p-4 text-gray-400 text-xs">${s.deletedAt ? formatDateTimeIndo(s.deletedAt) : '-'}</td>
+                                            <td class="p-4 text-center flex justify-center gap-2">
+                                                <button type="button" onclick="window.restoreSiswa('${s.id}')" class="text-emerald-400 bg-emerald-500/10 px-3 py-2 rounded-lg border border-emerald-500/20 hover:bg-emerald-500 hover:text-white transition-colors text-xs font-bold flex items-center gap-1" title="Pulihkan Data"><i class="ph ph-arrow-counter-clockwise text-base"></i> Pulihkan</button>
+                                                <button type="button" onclick="window.deleteDocHandler('siswa', '${s.id}')" class="text-red-400 bg-red-500/10 px-3 py-2 rounded-lg border border-red-500/20 hover:bg-red-500 hover:text-white transition-colors text-xs font-bold flex items-center gap-1" title="Hapus Permanen"><i class="ph ph-trash text-base"></i> Hapus Permanen</button>
+                                            </td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                            ${trashList.length === 0 ? '<div class="p-8 text-center text-gray-500">Storage sampah kosong.</div>' : ''}
                         </div>
                     </div>
                 `;
@@ -1074,7 +1212,7 @@
                             <div><label class="block text-xs font-bold mb-1">Kabupaten Sekolah</label><input type="text" id="es_kabSekolah" value="${s.kabSekolah||''}" class="w-full p-3 border border-gray-700 rounded-xl bg-[#111827] uppercase focus:border-emerald-500 outline-none"></div>
                             <div><label class="block text-xs font-bold mb-1">Kecamatan Sekolah</label><input type="text" id="es_kecSekolah" value="${s.kecSekolah||''}" class="w-full p-3 border border-gray-700 rounded-xl bg-[#111827] uppercase focus:border-emerald-500 outline-none"></div>
                             <div><label class="block text-xs font-bold mb-1">Jurusan 1</label><select id="es_jur1" required class="w-full p-3 border border-gray-700 rounded-xl bg-[#111827] focus:border-emerald-500 outline-none"><option value="">Pilih...</option>${state.jurusan.map(j => `<option value="${j.id}" ${s.jurusan1===j.id?'selected':''}>${j.name}</option>`).join('')}</select></div>
-                            <div><label class="block text-xs font-bold mb-1">Jurusan 2</label><select id="es_jur2" class="w-full p-3 border border-gray-700 rounded-xl bg-[#111827] focus:border-emerald-500 outline-none"><option value="">Pilih...</option>${state.jurusan.map(j => `<option value="${j.id}" ${s.jurusan2===j.id?'selected':''}>${j.name}</option>`).join('')}</select></div>
+                            <div><label class="block text-xs font-bold mb-1">Jurusan 2</label><select id="es_jur2" required class="w-full p-3 border border-gray-700 rounded-xl bg-[#111827] focus:border-emerald-500 outline-none"><option value="">Pilih...</option>${state.jurusan.map(j => `<option value="${j.id}" ${s.jurusan2===j.id?'selected':''}>${j.name}</option>`).join('')}</select></div>
                         </div>
 
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-5 bg-gray-900 p-6 rounded-2xl border border-gray-800">
@@ -1173,10 +1311,11 @@
         // ==========================================
         // ROLE: SISWA & CETAK PDF
         // ==========================================
+        // Revisi 7: Memastikan waLinkGlobal memiliki fallback DEFAULT_WA_GLOBAL agar QR Code selalu tampil sejak pendaftaran pertama
         window.generatePdfPendaftaran = (s) => {
             const jur1 = state.jurusan.find(j => j.id === s.jurusan1)?.name || '-'; const jur2 = state.jurusan.find(j => j.id === s.jurusan2)?.name || '-';
-            const waLinkGlobal = state.settings?.waLinkGlobal || '';
-            const waQrHtml = waLinkGlobal ? `<div style="text-align: center; margin-top: 15px; border-top: 1px dashed #000; padding-top: 10px;"><p style="font-size: 10px; font-weight: bold; margin-bottom: 5px;">SCAN BARCODE UNTUK GABUNG GRUP WHATSAPP CALON SISWA BARU</p><img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(waLinkGlobal)}" style="width: 80px; height: 80px; margin: auto; display: block;"><p style="font-size: 9px; margin-top: 5px; color: blue;">Atau klik link: ${waLinkGlobal}</p></div>` : '';
+            const waLinkGlobal = state.settings?.waLinkGlobal || DEFAULT_WA_GLOBAL;
+            const waQrHtml = waLinkGlobal ? `<div style="text-align: center; margin-top: 15px; border-top: 1px dashed #000; padding-top: 10px;"><p style="font-size: 10px; font-weight: bold; margin-bottom: 5px;">SCAN BARCODE UNTUK GABUNG GRUP WHATSAPP CALON SISWA BARU</p><img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(waLinkGlobal)}" crossorigin="anonymous" style="width: 80px; height: 80px; margin: auto; display: block;"><p style="font-size: 9px; margin-top: 5px; color: blue;">Atau klik link: ${waLinkGlobal}</p></div>` : '';
             return `
                 <div class="bg-white p-5 border border-gray-300 relative text-black text-left text-sm" style="margin: auto; width: 100%; box-sizing: border-box;">
                     <div class="flex items-center border-b-2 border-black pb-2 mb-2">
@@ -1239,8 +1378,10 @@
         };
 
         function renderSiswa() {
-            const s = state.siswa.find(x => x.id === state.siswaId); if (!s) return `<div class="text-center p-10">Data tidak ditemukan</div>`;
-            const waLinkGlobal = state.settings?.waLinkGlobal || '';
+            if (!state.isDataLoaded) return `<div class="text-center p-10 font-bold opacity-70">Memuat data siswa...</div>`;
+            const s = state.siswa.find(x => x.id === state.siswaId); 
+            if (!s) return `<div class="text-center p-10">Data tidak ditemukan. <button onclick="logout()" class="underline text-primary font-bold ml-1">Kembali ke Halaman Utama</button></div>`;
+            const waLinkGlobal = state.settings?.waLinkGlobal || DEFAULT_WA_GLOBAL;
             let waButton = waLinkGlobal ? `<a href="${waLinkGlobal}" target="_blank" class="mt-5 w-full flex items-center justify-center gap-3 bg-[#25D366] hover:bg-[#1da851] text-white px-4 py-3.5 rounded-2xl font-bold shadow-lg shadow-[#25D366]/30 transition-all transform active:scale-95"><i class="ph ph-whatsapp-logo text-2xl"></i> Gabung Grup WA Calon Siswa</a>` : '';
 
             return `
@@ -1254,7 +1395,7 @@
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div class="bg-white dark:bg-darkCard p-6 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm">
                             <div class="text-[10px] uppercase opacity-60 mb-2 font-bold tracking-wider">Status Pelunasan</div>
-                            ${s.checklist2 ? `<div class="text-emerald-500 font-black flex items-center gap-3 text-2xl"><i class="ph ph-check-circle text-3xl"></i> LUNAS</div>${(state.gelombang.find(g => g.id === s.gelombangId)?.waLink) ? `<a href="${state.gelombang.find(g => g.id === s.gelombangId).waLink}" target="_blank" class="mt-4 w-full flex items-center justify-center gap-2 bg-[#0ea5e9] hover:bg-[#0284c7] text-white px-4 py-3 rounded-xl font-bold shadow transition"><i class="ph ph-whatsapp-logo text-xl"></i> Gabung Grup WA Gelombang</a>` : ''}` : `<div class="text-amber-500 font-bold flex items-center gap-2 text-xl"><i class="ph ph-clock"></i> Belum Lunas</div>`}
+                            ${s.checklist2 ? `<div class="text-emerald-500 font-black flex items-center gap-3 text-2xl"><i class="ph ph-check-circle text-3xl"></i> LUNAS</div>${(state.gelombang.find(g => g.id === s.gelombangId)?.waLink) ? `<a href="${state.gelombang.find(g => g.id === s.gelombangId).waLink}" target="_blank" class="mt-4 w-full flex items-center justify-center gap-2 bg-[#0ea5e9] hover:bg-[#0284c7] text-white px-4 py-3 rounded-xl font-bold shadow transition"><i class="ph ph-whatsapp-logo text-xl"></i> Gabung Grup WA</a>` : ''}` : `<div class="text-amber-500 font-bold flex items-center gap-2 text-xl"><i class="ph ph-clock"></i> Belum Lunas</div>`}
                         </div>
                         <div class="bg-white dark:bg-darkCard p-6 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm relative">
                             <div class="text-[10px] uppercase opacity-60 mb-2 font-bold tracking-wider">Pengambilan Seragam</div>
@@ -1275,18 +1416,76 @@
             `;
         }
 
+        // Revisi 5, 6, & 7: Sistem Cetak PDF mendukung iOS (Safari/iPhone/iPad), Android, & PC + Nama File Otomatis "No Pendaftaran_Nama Siswa" + Menunggu QR Code Selesai Dimuat
         window._tempPrintSiswa = null;
-        window._printContent = (html, isA4 = false) => {
-            const app = document.getElementById('app-root'); const buf = document.getElementById('print-buffer');
+        window._printContent = (html, isA4 = false, customFileName = null) => {
+            const app = document.getElementById('app-root'); 
+            const buf = document.getElementById('print-buffer');
+            const originalTitle = document.title;
+            
+            if (customFileName) {
+                document.title = customFileName;
+            }
+
+            document.documentElement.classList.add('printing');
             document.body.classList.add('printing');
-            const printHtml = `<div style="${isA4 ? 'max-height: 297mm; max-width: 210mm; overflow: hidden;' : 'max-width: 210mm;'} margin: auto;">${html}</div>`;
-            app.style.display = 'none'; buf.style.display = 'block'; buf.innerHTML = printHtml;
-            setTimeout(() => { window.print(); buf.style.display = 'none'; buf.innerHTML = ''; app.style.display = 'flex'; document.body.classList.remove('printing'); }, 500); 
+            
+            const printHtml = `<div style="${isA4 ? 'max-height: 297mm; max-width: 210mm; overflow: hidden;' : 'max-width: 210mm;'} margin: auto; background: white;">${html}</div>`;
+            app.style.display = 'none'; 
+            buf.classList.remove('hidden');
+            buf.style.display = 'block'; 
+            buf.innerHTML = printHtml;
+
+            // Pastikan seluruh gambar (termasuk QR Code) selesai dimuat sebelum memicu dialog cetak
+            const imgs = Array.from(buf.querySelectorAll('img'));
+            const imgPromises = imgs.map(img => {
+                if (img.complete) return Promise.resolve();
+                return new Promise(resolve => {
+                    img.onload = resolve;
+                    img.onerror = resolve;
+                });
+            });
+
+            let cleanedUp = false;
+            const cleanupPrint = () => {
+                if (cleanedUp) return;
+                cleanedUp = true;
+                buf.style.display = 'none';
+                buf.classList.add('hidden');
+                buf.innerHTML = '';
+                app.style.display = 'flex';
+                document.documentElement.classList.remove('printing');
+                document.body.classList.remove('printing');
+                document.title = originalTitle;
+                window.removeEventListener('afterprint', cleanupPrint);
+            };
+
+            window.addEventListener('afterprint', cleanupPrint);
+
+            Promise.race([
+                Promise.all(imgPromises),
+                new Promise(resolve => setTimeout(resolve, 1200))
+            ]).then(() => {
+                setTimeout(() => {
+                    window.print();
+                    // Fallback pembersihan untuk perangkat iOS / mobile browser setelah dialog print selesai
+                    setTimeout(cleanupPrint, 2500);
+                }, 150);
+            });
         };
+
         window.printSiswaAdmin = (id) => { window._tempPrintSiswa = state.siswa.find(x => x.id === id); window.instantPrintPendaftaran(); };
-        window.printSeragamAdmin = (id) => { const s = state.siswa.find(x => x.id === id); if(s) window._printContent(window.generatePdfSeragam(s)); };
-        window.instantPrintPendaftaran = () => { if(window._tempPrintSiswa) window._printContent(window.generatePdfPendaftaran(window._tempPrintSiswa), true); };
-        window.instantPrintPendaftaranFromDash = () => { const s = state.siswa.find(x => x.id === state.siswaId); if(s) window._printContent(window.generatePdfPendaftaran(s), true); };
+        window.printSeragamAdmin = (id) => { const s = state.siswa.find(x => x.id === id); if(s) window._printContent(window.generatePdfSeragam(s), false, `${s.noPendaftaran}_${s.name}`); };
+        window.instantPrintPendaftaran = () => { 
+            if(window._tempPrintSiswa) {
+                const s = window._tempPrintSiswa;
+                window._printContent(window.generatePdfPendaftaran(s), true, `${s.noPendaftaran}_${s.name}`); 
+            }
+        };
+        window.instantPrintPendaftaranFromDash = () => { 
+            const s = state.siswa.find(x => x.id === state.siswaId); 
+            if(s) window._printContent(window.generatePdfPendaftaran(s), true, `${s.noPendaftaran}_${s.name}`); 
+        };
 
         const manifest = { name: "SINERGI SPMB", short_name: "SPMB", display: "standalone", background_color: "#ffffff", theme_color: "#10b981" };
         const blob = new Blob([JSON.stringify(manifest)], { type: 'application/json' });
