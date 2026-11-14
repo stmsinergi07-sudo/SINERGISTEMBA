@@ -457,7 +457,7 @@
 
             btnSubmit.disabled = true; btnSubmit.innerHTML = "Memproses...";
 
-            const toUpper = (str) => str ? str.toUpperCase() : '';
+            const toUpper = (str) => str ? str.replace(/\s+/g, ' ').trim().toUpperCase() : '';
 
             const baseSiswa = {
                 gelombangId: null, gelombangName: null, 
@@ -678,9 +678,10 @@
                     
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
                         <div class="${panelCard} h-80 flex flex-col"><h3 class="font-bold text-gray-300 mb-4 text-sm tracking-wide">Top 5 Asal Kecamatan</h3><div class="flex-grow relative"><canvas id="chartKecamatan"></canvas></div></div>
+                        <div class="${panelCard} h-80 flex flex-col"><h3 class="font-bold text-gray-300 mb-4 text-sm tracking-wide">Top 5 Asal Sekolah (SMP/MTs)</h3><div class="flex-grow relative"><canvas id="chartAsalSekolah"></canvas></div></div>
                         <div class="${panelCard} h-80 flex flex-col"><h3 class="font-bold text-gray-300 mb-4 text-sm tracking-wide">Gelombang & Pendaftar</h3><div class="flex-grow relative"><canvas id="chartGelombang"></canvas></div></div>
                         <div class="${panelCard} h-80 flex flex-col"><h3 class="font-bold text-gray-300 mb-4 text-sm tracking-wide">POS Jurusan (Lunas)</h3><div class="flex-grow relative"><canvas id="chartPosJurusan"></canvas></div></div>
-                        <div class="${panelCard} h-80 flex flex-col"><h3 class="font-bold text-gray-300 mb-4 text-sm tracking-wide">Gender Pendaftar</h3><div class="flex-grow relative"><canvas id="chartJurusan"></canvas></div></div>
+                        <div class="${panelCard} md:col-span-2 h-80 flex flex-col"><h3 class="font-bold text-gray-300 mb-4 text-sm tracking-wide">Gender Pendaftar</h3><div class="flex-grow relative"><canvas id="chartJurusan"></canvas></div></div>
                     </div>
                 `;
             } else if (tab === 'gel') {
@@ -1070,12 +1071,22 @@
         // CHART INITIALIZERS
         // ==========================================
         window.initAdminCharts = () => {
-            const ctxKec = document.getElementById('chartKecamatan'); const ctxJur = document.getElementById('chartJurusan'); const ctxPosJur = document.getElementById('chartPosJurusan'); const ctxGel = document.getElementById('chartGelombang');
+            const ctxKec = document.getElementById('chartKecamatan'); const ctxSekolah = document.getElementById('chartAsalSekolah'); const ctxJur = document.getElementById('chartJurusan'); const ctxPosJur = document.getElementById('chartPosJurusan'); const ctxGel = document.getElementById('chartGelombang');
             if(!ctxKec || !ctxJur || !ctxPosJur || !ctxGel) return;
 
             Chart.defaults.color = '#9ca3af'; Chart.defaults.borderColor = 'rgba(255,255,255,0.05)';
 
-            const kecCounts = {}; state.siswa.forEach(s => { if(s.kecOrtu) { const k = s.kecOrtu.toUpperCase(); kecCounts[k] = (kecCounts[k] || 0) + 1; } });
+            // Normalisasi cerdas agar perbedaan spasi ("BALUNG" vs "BALUNG ") atau awalan ("KEC. BALUNG") tergabung jadi 1
+            const normalizeKec = (str) => {
+                if (!str) return '';
+                return String(str).toUpperCase().replace(/[.,]/g, ' ').replace(/\s+/g, ' ').trim().replace(/^(KECAMATAN|KEC)\s+/i, '').trim();
+            };
+
+            const kecCounts = {}; 
+            state.siswa.forEach(s => { 
+                const k = normalizeKec(s.kecOrtu); 
+                if(k) { kecCounts[k] = (kecCounts[k] || 0) + 1; } 
+            });
             const sortedKec = Object.entries(kecCounts).sort((a,b)=>b[1]-a[1]).slice(0,5);
             
             new Chart(ctxKec, {
@@ -1083,6 +1094,28 @@
                 data: { labels: sortedKec.map(x=>x[0]), datasets: [{ data: sortedKec.map(x=>x[1]), backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899'], borderWidth: 0 }] },
                 options: { responsive: true, maintainAspectRatio: false, cutout: '70%', plugins: { legend: { position: 'right', labels: { boxWidth: 12 } } } }
             });
+
+            if (ctxSekolah) {
+                const normalizeSekolah = (str) => {
+                    if (!str) return '';
+                    return String(str).toUpperCase().replace(/[.,]/g, ' ').replace(/\s+/g, ' ').trim()
+                        .replace(/^SMP\s+NEGERI\s+/i, 'SMPN ')
+                        .replace(/^MTS\s+NEGERI\s+/i, 'MTSN ')
+                        .trim();
+                };
+                const sekCounts = {};
+                state.siswa.forEach(s => {
+                    const sk = normalizeSekolah(s.asalSekolah);
+                    if (sk) { sekCounts[sk] = (sekCounts[sk] || 0) + 1; }
+                });
+                const sortedSek = Object.entries(sekCounts).sort((a,b)=>b[1]-a[1]).slice(0,5);
+
+                new Chart(ctxSekolah, {
+                    type: 'doughnut',
+                    data: { labels: sortedSek.map(x=>x[0]), datasets: [{ data: sortedSek.map(x=>x[1]), backgroundColor: ['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#ec4899'], borderWidth: 0 }] },
+                    options: { responsive: true, maintainAspectRatio: false, cutout: '70%', plugins: { legend: { position: 'right', labels: { boxWidth: 12 } } } }
+                });
+            }
 
             const gelLabels = ['Pendaftar (Belum)', ...state.gelombang.map(g => window.getAcronym(g.name))];
             const gelData = [
@@ -1235,7 +1268,7 @@
         };
 
         window.saveEditSiswa = async (e, id) => {
-            e.preventDefault(); const toUpper = (str) => str ? str.toUpperCase() : '';
+            e.preventDefault(); const toUpper = (str) => str ? str.replace(/\s+/g, ' ').trim().toUpperCase() : '';
             const data = { 
                 name: toUpper(document.getElementById('es_name').value), nisn: document.getElementById('es_nisn').value, jk: document.getElementById('es_jk').value, nik: document.getElementById('es_nik').value, tempatLahir: toUpper(document.getElementById('es_tempat').value), tanggalLahir: document.getElementById('es_tgl').value, agama: document.getElementById('es_agama').value,
                 asalSekolah: toUpper(document.getElementById('es_asalSekolah').value), provSekolah: toUpper(document.getElementById('es_provSekolah').value), kabSekolah: toUpper(document.getElementById('es_kabSekolah').value), kecSekolah: toUpper(document.getElementById('es_kecSekolah').value), jurusan1: document.getElementById('es_jur1').value, jurusan2: document.getElementById('es_jur2').value,
