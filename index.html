@@ -303,6 +303,7 @@
                         state.siswa = allDocs.filter(x => !x.isDeleted);
                         state.siswaTrash = allDocs.filter(x => x.isDeleted);
                         state.isDataLoaded = true;
+                        window.syncCounterWithHighestSiswa();
                         render();
                     }, (err) => {
                         console.error("Firestore Listener Error:", err);
@@ -390,6 +391,106 @@
                 window.syncRoleListeners();
             } catch (e) { showToast("Koneksi ke database sedang padat: " + e.message, "error"); }
         }
+
+        // Otomatis menyinkronkan counter_pendaftaran & mengunci seluruh nomor yang sudah ada agar mustahil ditembus
+        window.syncCounterWithHighestSiswa = async function() {
+            if (IS_PREVIEW || !db || state.allSiswaRaw.length === 0) return;
+            try {
+                let maxExisting = 0;
+                const seenNumbers = new Map();
+
+                // Urutkan dari yang paling awal mendaftar agar pemilik pertama memegang nomor sah
+                const sortedAll = [...state.allSiswaRaw].sort((a, b) => (a.tanggalDaftar || a.createdAt || 0) - (b.tanggalDaftar || b.createdAt || 0));
+
+                for (const s of sortedAll) {
+                    const num = parseInt(s.noPendaftaran);
+                    if (!isNaN(num) && num > maxExisting) maxExisting = num;
+                }
+
+                // Kedua: Jika ada nomor ganda di database (misal akibat cache lama), otomatis geser pendaftar yang belakangan ke nomor urut baru
+                for (const s of sortedAll) {
+                    if (s.isDeleted) continue;
+                    const noStr = String(s.noPendaftaran || '').trim();
+                    if (!noStr) continue;
+
+                    if (seenNumbers.has(noStr)) {
+                        maxExisting++;
+                        const newUniqueNo = maxExisting.toString();
+                        s.noPendaftaran = newUniqueNo;
+                        await setDoc(doc(db, getCollectionPath('siswa'), s.id), { noPendaftaran: newUniqueNo }, { merge: true });
+                        await setDoc(doc(db, getCollectionPath('settings'), `lock_${newUniqueNo}`), { siswaId: s.id, noPendaftaran: newUniqueNo, lockedAt: Date.now() }, { merge: true });
+                        seenNumbers.set(newUniqueNo, s.id);
+                    } else {
+                        seenNumbers.set(noStr, s.id);
+                    }
+                }
+
+                if (maxExisting <= 0) return;
+
+                const counterRef = doc(db, getCollectionPath('settings'), 'counter_pendaftaran');
+                const counterSnap = await getDoc(counterRef);
+                const currentLastNo = (counterSnap.exists() && counterSnap.data().lastNo) ? (parseInt(counterSnap.data().lastNo) || 0) : 0;
+
+                if (maxExisting > currentLastNo) {
+                    await setDoc(counterRef, { lastNo: maxExisting }, { merge: true });
+                }
+            } catch (err) {
+                console.warn("Auto-sync counter skipped:", err);
+            }
+        };
+
+        // Fungsi 1-Klik untuk memperbaiki nomor pendaftaran ganda yang sudah terlanjur terjadi
+        window.fixDuplicateNumbers = async function() {
+            const seen = new Map();
+            const duplicates = [];
+
+            // Urutkan berdasarkan waktu daftar paling awal agar pendaftar pertama tetap memegang nomor aslinya
+            const sortedSiswa = [...state.siswa].sort((a, b) => {
+                const tA = a.tanggalDaftar || a.createdAt || 0;
+                const tB = b.tanggalDaftar || b.createdAt || 0;
+                return tA - tB;
+            });
+
+            for (const s of sortedSiswa) {
+                const no = String(s.noPendaftaran || '').trim();
+                if (!no) continue;
+                if (seen.has(no)) {
+                    duplicates.push(s);
+                } else {
+                    seen.set(no, s.id);
+                }
+            }
+
+            if (duplicates.length === 0) {
+                return showToast("Tidak ditemukan nomor pendaftaran ganda!", "success");
+            }
+
+            let maxNo = state.allSiswaRaw.reduce((max, s) => {
+                const num = parseInt(s.noPendaftaran);
+                return (!isNaN(num) && num > max) ? num : max;
+            }, 0);
+
+            const dupNames = duplicates.map(d => `${d.name} (No. ${d.noPendaftaran})`).join(', ');
+            const ok = await window.showConfirmModal({
+                title: 'Perbaiki Nomor Ganda Otomatis?',
+                message: `Ditemukan <b>${duplicates.length} data ganda</b>: ${dupNames}.<br><br>Sistem akan memberikan nomor urut baru mulai dari <b>${maxNo + 1}</b> agar tidak ada lagi nomor yang bentrok.`,
+                confirmText: 'Ya, Perbaiki Sekarang',
+                type: 'warning'
+            });
+            if (!ok) return;
+
+            try {
+                for (const dup of duplicates) {
+                    maxNo++;
+                    const newNo = maxNo.toString();
+                    await saveDoc('siswa', { noPendaftaran: newNo }, dup.id);
+                }
+                await saveDoc('settings', { lastNo: maxNo }, 'counter_pendaftaran');
+                showToast(`Berhasil memperbaiki ${duplicates.length} nomor ganda! Nomor terakhir kini: ${maxNo}`, "success");
+            } catch (err) {
+                showToast("Gagal memperbaiki nomor ganda: " + err.message, "error");
+            }
+        };
 
         async function saveDoc(colName, data, docId = null) {
             if (IS_PREVIEW) return;
@@ -512,23 +613,188 @@
             const file = event.target.files[0]; if (!file) return;
             const reader = new FileReader();
             reader.onload = async function(e) {
-                const rows = e.target.result.split('\n'); if(rows.length < 2) return showToast("File CSV kosong", "error");
-                const headers = rows[0].split(',').map(h => h.trim().replace(/"/g, ''));
+                const rows = e.target.result.split(/\r?\n/); if(rows.length < 2) return showToast("File CSV kosong", "error");
+                const headers = rows[0].split(',').map(h => h.trim().replace(/^"|"$/g, '').trim());
                 let imported = 0;
+                let maxNoPendaftaran = 0;
+
                 for (let i = 1; i < rows.length; i++) {
                     const row = rows[i].trim(); if (!row) continue;
                     const obj = {}; let currentVal = ''; let inQuotes = false; let colIdx = 0;
                     for (let c = 0; c < row.length; c++) {
                         const char = row[c];
                         if (char === '"') inQuotes = !inQuotes;
-                        else if (char === ',' && !inQuotes) { obj[headers[colIdx]] = currentVal.replace(/"/g, ''); currentVal = ''; colIdx++; } 
+                        else if (char === ',' && !inQuotes) { obj[headers[colIdx]] = currentVal.replace(/""/g, '"').trim(); currentVal = ''; colIdx++; } 
                         else { currentVal += char; }
                     }
-                    obj[headers[colIdx]] = currentVal.replace(/"/g, '');
-                    if (obj.id) { const existingId = obj.id; delete obj.id; await saveDoc(colName, obj, existingId); } else { await saveDoc(colName, obj); }
-                    imported++;
+                    obj[headers[colIdx]] = currentVal.replace(/""/g, '"').trim();
+
+                    // Jika yang di-import adalah hasil Export CSV Siswa, konversi kembali ke struktur asli database secara utuh
+                    if (colName === 'siswa' && (obj.No_Pendaftaran !== undefined || obj.noPendaftaran !== undefined)) {
+                        const cleanVal = (v) => (!v || v === '-') ? '' : String(v).replace(/\t/g, '').trim();
+                        const noDaftar = cleanVal(obj.No_Pendaftaran || obj.noPendaftaran);
+                        if (!noDaftar) continue;
+
+                        const numNo = parseInt(noDaftar);
+                        if (!isNaN(numNo) && numNo > maxNoPendaftaran) maxNoPendaftaran = numNo;
+
+                        const j1Name = cleanVal(obj.Pilihan_Jurusan_1);
+                        const j2Name = cleanVal(obj.Pilihan_Jurusan_2);
+                        const guruName = cleanVal(obj.Guru_Referal);
+                        const gelName = cleanVal(obj.Gelombang);
+                        const isLunas = cleanVal(obj.Status_Lunas).toUpperCase() === 'LUNAS';
+
+                        const j1Obj = state.jurusan.find(j => j.name.toUpperCase() === j1Name.toUpperCase());
+                        const j2Obj = state.jurusan.find(j => j.name.toUpperCase() === j2Name.toUpperCase());
+                        const guruObj = state.guru.find(g => g.name.toUpperCase() === guruName.toUpperCase());
+                        const gelObj = state.gelombang.find(g => g.name.toUpperCase() === gelName.toUpperCase());
+
+                        const siswaDoc = {
+                            noPendaftaran: noDaftar,
+                            name: cleanVal(obj.Nama || obj.name).toUpperCase(),
+                            nisn: cleanVal(obj.NISN || obj.nisn),
+                            nik: cleanVal(obj.NIK || obj.nik),
+                            jk: cleanVal(obj.Jenis_Kelamin || obj.jk),
+                            tempatLahir: cleanVal(obj.Tempat_Lahir || obj.tempatLahir).toUpperCase(),
+                            tanggalLahir: obj.tanggalLahir || '',
+                            agama: cleanVal(obj.Agama || obj.agama).toUpperCase(),
+                            asalSekolah: cleanVal(obj.Asal_Sekolah || obj.asalSekolah).toUpperCase(),
+                            provSekolah: cleanVal(obj.Provinsi_Sekolah || obj.provSekolah).toUpperCase(),
+                            kabSekolah: cleanVal(obj.Kabupaten_Sekolah || obj.kabSekolah).toUpperCase(),
+                            kecSekolah: cleanVal(obj.Kecamatan_Sekolah || obj.kecSekolah).toUpperCase(),
+                            jurusan1: j1Obj ? j1Obj.id : (obj.jurusan1 || ''),
+                            jurusan2: j2Obj ? j2Obj.id : (obj.jurusan2 || ''),
+                            namaIbu: cleanVal(obj.Nama_Ibu || obj.namaIbu).toUpperCase(),
+                            alamatOrtu: cleanVal(obj.Alamat_Ortu || obj.alamatOrtu).toUpperCase(),
+                            desaOrtu: cleanVal(obj.Desa_Ortu || obj.desaOrtu).toUpperCase(),
+                            kecOrtu: cleanVal(obj.Kecamatan_Ortu || obj.kecOrtu).toUpperCase(),
+                            kabOrtu: cleanVal(obj.Kabupaten_Ortu || obj.kabOrtu).toUpperCase(),
+                            provOrtu: cleanVal(obj.Provinsi_Ortu || obj.provOrtu).toUpperCase(),
+                            hpOrtu: cleanVal(obj.No_HP_Ortu || obj.hpOrtu),
+                            guruId: guruObj ? guruObj.id : (obj.guruId || null),
+                            checklist1: isLunas ? true : Boolean(obj.checklist1),
+                            checklist2: isLunas ? true : Boolean(obj.checklist2),
+                            gelombangId: isLunas && gelObj ? gelObj.id : (obj.gelombangId || null),
+                            gelombangName: isLunas ? (gelObj ? gelObj.name : (gelName || null)) : null,
+                            isDeleted: false,
+                            seragam: obj.seragam || { putihAbu: false, almamater: false, pramuka: false, olahraga: false, praktik: false, topi: false, sabuk: false, bet: false },
+                            createdAt: Date.now(),
+                            tanggalDaftar: Date.now()
+                        };
+
+                        await saveDoc('siswa', siswaDoc, `reg_${noDaftar}`);
+                        imported++;
+                    } else {
+                        if (obj.id) { const existingId = obj.id; delete obj.id; await saveDoc(colName, obj, existingId); } else { await saveDoc(colName, obj); }
+                        imported++;
+                    }
                 }
-                showToast(`Berhasil import ${imported} data`); event.target.value = ''; 
+
+                if (colName === 'siswa' && maxNoPendaftaran > 0) {
+                    await saveDoc('settings', { lastNo: maxNoPendaftaran }, 'counter_pendaftaran');
+                }
+                showToast(`Berhasil import ${imported} data secara utuh!`); event.target.value = ''; 
+            };
+            reader.readAsText(file);
+        };
+
+        // ==========================================
+        // FITUR MIGRASI & BACKUP FULL DATABASE (JSON)
+        // ==========================================
+        window.exportFullDatabaseJSON = async () => {
+            try {
+                const maxNo = state.allSiswaRaw.reduce((max, s) => {
+                    const n = parseInt(s.noPendaftaran);
+                    return (!isNaN(n) && n > max) ? n : max;
+                }, 0);
+
+                const backupPayload = {
+                    version: '1.0',
+                    exportedAt: Date.now(),
+                    lastCounterNo: maxNo,
+                    settings: state.settings,
+                    gelombang: state.gelombang,
+                    jurusan: state.jurusan,
+                    guru: state.guru,
+                    siswa: state.allSiswaRaw.length > 0 ? state.allSiswaRaw : state.siswa
+                };
+
+                const blob = new Blob([JSON.stringify(backupPayload, null, 2)], { type: 'application/json' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `SINERGI_FULL_BACKUP_${new Date().toISOString().slice(0,10)}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                showToast(`Backup berhasil! (${backupPayload.siswa.length} data siswa tersimpan)`);
+            } catch (err) {
+                showToast("Gagal membuat file backup: " + err.message, "error");
+            }
+        };
+
+        window.importFullDatabaseJSON = (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = async function(e) {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    if (!data.siswa || !Array.isArray(data.siswa)) {
+                        return showToast("Format file JSON Backup tidak valid!", "error");
+                    }
+
+                    const ok = await window.showConfirmModal({
+                        title: 'Pulihkan Seluruh Database?',
+                        message: `Ditemukan <b>${data.siswa.length} data siswa</b>, <b>${(data.jurusan||[]).length} jurusan</b>, dan <b>${(data.gelombang||[]).length} gelombang</b>. Seluruh data beserta status Lunas & Seragam akan dimuat ke Firebase ini.`,
+                        confirmText: 'Ya, Muat Sekarang',
+                        type: 'success'
+                    });
+                    if (!ok) { event.target.value = ''; return; }
+
+                    showToast("Sedang memulihkan data ke Firebase baru, mohon tunggu...", "success");
+
+                    if (data.settings) {
+                        await saveDoc('settings', data.settings, 'main');
+                    }
+                    if (Array.isArray(data.gelombang)) {
+                        for (const g of data.gelombang) {
+                            const { id, ...rest } = g;
+                            await saveDoc('gelombang', rest, id);
+                        }
+                    }
+                    if (Array.isArray(data.jurusan)) {
+                        for (const j of data.jurusan) {
+                            const { id, ...rest } = j;
+                            await saveDoc('jurusan', rest, id);
+                        }
+                    }
+                    if (Array.isArray(data.guru)) {
+                        for (const gr of data.guru) {
+                            const { id, ...rest } = gr;
+                            await saveDoc('guru', rest, id);
+                        }
+                    }
+
+                    let maxNo = data.lastCounterNo || 0;
+                    for (const s of data.siswa) {
+                        const { id, ...rest } = s;
+                        const docId = id || `reg_${s.noPendaftaran}`;
+                        const num = parseInt(s.noPendaftaran);
+                        if (!isNaN(num) && num > maxNo) maxNo = num;
+                        await saveDoc('siswa', rest, docId);
+                    }
+
+                    if (maxNo > 0) {
+                        await saveDoc('settings', { lastNo: maxNo }, 'counter_pendaftaran');
+                    }
+
+                    showToast(`Sukses! ${data.siswa.length} data siswa berhasil dipindahkan secara utuh.`);
+                } catch (err) {
+                    showToast("Gagal memulihkan database: " + err.message, "error");
+                } finally {
+                    event.target.value = '';
+                }
             };
             reader.readAsText(file);
         };
@@ -948,34 +1214,74 @@
                     state.allSiswaRaw.push(finalSiswa);
                 } else {
                     const counterRef = doc(db, getCollectionPath('settings'), 'counter_pendaftaran');
-                    
-                    await runTransaction(db, async (transaction) => {
-                        const counterDoc = await transaction.get(counterRef);
-                        const existingNums = state.allSiswaRaw.map(s => parseInt(s.noPendaftaran)).filter(n => !isNaN(n));
-                        const maxLocal = existingNums.length > 0 ? Math.max(...existingNums) : 0;
-                        const startBase = parseInt(activeGelombang.startId) || 1000;
-                        
-                        let lastServerNum = 0;
-                        if (counterDoc.exists() && counterDoc.data().lastNo) {
-                            lastServerNum = parseInt(counterDoc.data().lastNo) || 0;
+                    const startBase = parseInt(activeGelombang.startId) || 1000;
+
+                    // SISTEM ANTI-NOMOR GANDA MUTLAK (ZERO-TOLERANCE LOCK)
+                    // Siswa tidak akan pernah melihat layar Sukses/PDF sebelum nomornya 100% terverifikasi tunggal di seluruh database
+                    let isNumberGuaranteedUnique = false;
+                    let safetyFloor = startBase;
+
+                    while (!isNumberGuaranteedUnique) {
+                        // 1. Jalankan Atomic Transaction di server untuk mengklaim nomor kandidat
+                        await runTransaction(db, async (transaction) => {
+                            const counterDoc = await transaction.get(counterRef);
+                            const existingNums = state.allSiswaRaw.map(s => parseInt(s.noPendaftaran)).filter(n => !isNaN(n));
+                            const maxLocal = existingNums.length > 0 ? Math.max(...existingNums) : 0;
+                            
+                            let lastServerNum = 0;
+                            if (counterDoc.exists() && counterDoc.data().lastNo) {
+                                lastServerNum = parseInt(counterDoc.data().lastNo) || 0;
+                            }
+
+                            let candidateNum = Math.max(lastServerNum, maxLocal, safetyFloor) + 1;
+                            let candidateDocRef = doc(db, getCollectionPath('siswa'), `reg_${candidateNum}`);
+                            let lockDocRef = doc(db, getCollectionPath('settings'), `lock_${candidateNum}`);
+                            
+                            let candidateSnap = await transaction.get(candidateDocRef);
+                            let lockSnap = await transaction.get(lockDocRef);
+
+                            while (candidateSnap.exists() || lockSnap.exists()) {
+                                candidateNum++;
+                                candidateDocRef = doc(db, getCollectionPath('siswa'), `reg_${candidateNum}`);
+                                lockDocRef = doc(db, getCollectionPath('settings'), `lock_${candidateNum}`);
+                                candidateSnap = await transaction.get(candidateDocRef);
+                                lockSnap = await transaction.get(lockDocRef);
+                            }
+
+                            const noPendaftaran = candidateNum.toString();
+                            finalSiswa = { ...baseSiswa, id: `reg_${noPendaftaran}`, noPendaftaran, commitTimestamp: Date.now() };
+
+                            transaction.set(counterRef, { lastNo: candidateNum }, { merge: true });
+                            transaction.set(lockDocRef, { siswaId: finalSiswa.id, nisn: finalSiswa.nisn, lockedAt: Date.now() });
+                            transaction.set(candidateDocRef, finalSiswa);
+                            safetyFloor = candidateNum;
+                        });
+
+                        // 2. VERIFIKASI MUTLAK SEBELUM TAMPIL KE LAYAR SISWA:
+                        // Cek seluruh dokumen di koleksi 'siswa' (termasuk dokumen lama yang memakai ID acak)
+                        const verifyQuery = query(collection(db, getCollectionPath('siswa')), where('noPendaftaran', '==', finalSiswa.noPendaftaran));
+                        const verifySnap = await getDocs(verifyQuery);
+                        const activeDocsWithSameNo = [];
+                        verifySnap.forEach(d => {
+                            const dData = d.data();
+                            if (!dData.isDeleted) {
+                                activeDocsWithSameNo.push({ id: d.id, ...dData });
+                            }
+                        });
+
+                        // Cek apakah hanya milik siswa ini sendiri yang memakai nomor tersebut
+                        const otherUsersWithSameNo = activeDocsWithSameNo.filter(d => d.nisn !== finalSiswa.nisn);
+
+                        if (otherUsersWithSameNo.length === 0) {
+                            // 100% murni tunggal! Aman untuk ditampilkan ke layar siswa & dicetak ke PDF
+                            isNumberGuaranteedUnique = true;
+                        } else {
+                            // Jika ternyata nomor tersebut sudah dipakai oleh dokumen lama ber-ID acak,
+                            // langsung batalkan dokumen sementara ini SEBELUM layar sukses muncul dan ambil nomor berikutnya!
+                            await deleteDoc(doc(db, getCollectionPath('siswa'), finalSiswa.id));
+                            safetyFloor = parseInt(finalSiswa.noPendaftaran) || safetyFloor;
                         }
-
-                        let candidateNum = Math.max(lastServerNum, maxLocal, startBase) + 1;
-                        let candidateDocRef = doc(db, getCollectionPath('siswa'), `reg_${candidateNum}`);
-                        let candidateSnap = await transaction.get(candidateDocRef);
-
-                        while (candidateSnap.exists()) {
-                            candidateNum++;
-                            candidateDocRef = doc(db, getCollectionPath('siswa'), `reg_${candidateNum}`);
-                            candidateSnap = await transaction.get(candidateDocRef);
-                        }
-
-                        const noPendaftaran = candidateNum.toString();
-                        finalSiswa = { ...baseSiswa, id: `reg_${noPendaftaran}`, noPendaftaran };
-
-                        transaction.set(counterRef, { lastNo: candidateNum }, { merge: true });
-                        transaction.set(candidateDocRef, finalSiswa);
-                    });
+                    }
                 }
 
                 formElement.reset(); 
@@ -1328,10 +1634,23 @@
                 const s = window.adminFilters.search.toLowerCase(); const jf = window.adminFilters.jurusan; const gf = window.adminFilters.gelombang; const gen = window.adminFilters.gender;
                 const filteredSiswa = state.siswa.filter(x => (x.noPendaftaran.toLowerCase().includes(s) || x.name.toLowerCase().includes(s)) && (!jf || x.jurusan1 === jf) && (!gf || x.gelombangId === gf || (gf === 'null' && !x.gelombangId)) && (!gen || x.jk === gen)).sort((a, b) => (parseInt(a.noPendaftaran) || 0) - (parseInt(b.noPendaftaran) || 0));
 
+                // Deteksi apakah ada nomor pendaftaran ganda saat ini
+                const numCountMap = {};
+                state.siswa.forEach(item => {
+                    const no = String(item.noPendaftaran || '').trim();
+                    if (no) numCountMap[no] = (numCountMap[no] || 0) + 1;
+                });
+                const duplicateNos = Object.keys(numCountMap).filter(no => numCountMap[no] > 1);
+
                 return `
                     <div class="flex flex-col md:flex-row justify-between md:items-center mb-6 gap-4">
                         <h2 class="text-3xl font-black text-white tracking-tight">Data Siswa</h2>
-                        <div class="flex gap-3">
+                        <div class="flex flex-wrap gap-3">
+                            ${duplicateNos.length > 0 ? `
+                                <button onclick="window.fixDuplicateNumbers()" class="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2.5 rounded-xl text-sm font-black shadow-lg shadow-amber-500/25 transition-all active:scale-95 flex items-center gap-2 animate-pulse">
+                                    <i class="ph-bold ph-magic-wand text-lg"></i> Perbaiki Nomor Ganda (${duplicateNos.join(', ')})
+                                </button>
+                            ` : ''}
                             <button onclick="exportCSV('siswa')" class="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-emerald-500/20 transition-all active:scale-95 flex items-center gap-2"><i class="ph ph-download-simple text-lg"></i> Export CSV</button>
                             <input type="file" id="importSiswa" class="hidden" accept=".csv" onchange="importCSV(event, 'siswa')">
                             <button onclick="triggerImport('importSiswa')" class="bg-gray-800 hover:bg-gray-700 text-white border border-gray-700 px-4 py-2.5 rounded-xl text-sm font-bold transition-colors flex items-center gap-2"><i class="ph ph-upload-simple"></i> Import</button>
@@ -1473,6 +1792,20 @@
                             <input type="url" id="stf_wa_global" value="${state.settings.waLinkGlobal || ''}" placeholder="https://chat.whatsapp.com/..." class="flex-grow p-3 bg-gray-900 border border-gray-700 rounded-xl text-white focus:border-emerald-500 outline-none">
                             <button type="submit" class="bg-emerald-500 hover:bg-emerald-600 text-white px-6 py-3 rounded-xl font-bold transition-all shadow-lg active:scale-95">Simpan Link WA</button>
                         </form>
+                    </div>
+
+                    <div class="${panelCard} mb-8 border-blue-500/30">
+                        <h3 class="font-bold text-lg text-blue-400 mb-2 flex items-center gap-2"><i class="ph ph-database text-2xl"></i> Migrasi & Backup Penuh Database (Pindah Akun Firebase)</h3>
+                        <p class="text-sm text-gray-400 mb-5">Gunakan fitur ini untuk memindahkan seluruh data (140+ siswa beserta status Lunas, C1/C2, Seragam, Jurusan, Gelombang, Guru, & Nomor Antrean Terakhir) ke akun Firebase baru secara utuh 100% hanya dengan 1 klik.</p>
+                        <div class="flex flex-wrap gap-3">
+                            <button type="button" onclick="window.exportFullDatabaseJSON()" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-xl text-sm font-bold shadow-lg shadow-blue-500/20 transition-all active:scale-95 flex items-center gap-2">
+                                <i class="ph ph-download-simple text-lg"></i> 1. Download Full Backup (.JSON)
+                            </button>
+                            <input type="file" id="importFullJsonInput" class="hidden" accept=".json" onchange="window.importFullDatabaseJSON(event)">
+                            <button type="button" onclick="triggerImport('importFullJsonInput')" class="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-3 rounded-xl text-sm font-bold shadow-lg shadow-emerald-500/20 transition-all active:scale-95 flex items-center gap-2">
+                                <i class="ph ph-upload-simple text-lg"></i> 2. Restore / Muat Full Backup (.JSON)
+                            </button>
+                        </div>
                     </div>
 
                     <h3 class="font-bold text-gray-300 mb-4 tracking-wide text-sm uppercase">Atur Akun Staf Divisi</h3>
@@ -1843,13 +2176,14 @@
                     <form onsubmit="window.saveEditSiswa(event, '${s.id}')" class="space-y-6 text-sm text-gray-300">
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-5 bg-gray-900 p-6 rounded-2xl border border-gray-800">
                             <h4 class="md:col-span-2 font-bold text-emerald-400 border-b border-gray-800 pb-3 uppercase tracking-wider text-xs">DATA CALON SISWA</h4>
+                            <div><label class="block text-xs font-bold mb-1 text-amber-400">Nomor Pendaftaran</label><input type="text" id="es_noPendaftaran" value="${s.noPendaftaran||''}" required class="w-full p-3 border border-amber-500/40 rounded-xl bg-[#111827] font-mono font-bold text-amber-400 focus:border-amber-500 outline-none"></div>
                             <div><label class="block text-xs font-bold mb-1">Nama</label><input type="text" id="es_name" value="${s.name}" required class="w-full p-3 border border-gray-700 rounded-xl bg-[#111827] uppercase focus:border-emerald-500 outline-none"></div>
                             <div><label class="block text-xs font-bold mb-1">NISN</label><input type="text" id="es_nisn" value="${s.nisn}" required class="w-full p-3 border border-gray-700 rounded-xl bg-[#111827] focus:border-emerald-500 outline-none"></div>
                             <div><label class="block text-xs font-bold mb-1">Jenis Kelamin</label><select id="es_jk" class="w-full p-3 border border-gray-700 rounded-xl bg-[#111827] focus:border-emerald-500 outline-none"><option value="Laki-laki" ${s.jk==='Laki-laki'?'selected':''}>Laki-laki</option><option value="Perempuan" ${s.jk==='Perempuan'?'selected':''}>Perempuan</option></select></div>
                             <div><label class="block text-xs font-bold mb-1">NIK</label><input type="text" id="es_nik" value="${s.nik||''}" class="w-full p-3 border border-gray-700 rounded-xl bg-[#111827] focus:border-emerald-500 outline-none"></div>
                             <div><label class="block text-xs font-bold mb-1">Tempat Lahir</label><input type="text" id="es_tempat" value="${s.tempatLahir||''}" class="w-full p-3 border border-gray-700 rounded-xl bg-[#111827] uppercase focus:border-emerald-500 outline-none"></div>
                             <div><label class="block text-xs font-bold mb-1">Tanggal Lahir</label><input type="date" id="es_tgl" value="${s.tanggalLahir||''}" required class="w-full p-3 border border-gray-700 rounded-xl bg-[#111827] focus:border-emerald-500 outline-none"></div>
-                            <div class="md:col-span-2"><label class="block text-xs font-bold mb-1">Agama</label><input type="text" id="es_agama" value="${s.agama||''}" required class="w-full p-3 border border-gray-700 rounded-xl bg-[#111827] uppercase focus:border-emerald-500 outline-none"></div>
+                            <div><label class="block text-xs font-bold mb-1">Agama</label><input type="text" id="es_agama" value="${s.agama||''}" required class="w-full p-3 border border-gray-700 rounded-xl bg-[#111827] uppercase focus:border-emerald-500 outline-none"></div>
                         </div>
                         
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-5 bg-gray-900 p-6 rounded-2xl border border-gray-800">
@@ -1884,12 +2218,15 @@
         window.saveEditSiswa = async (e, id) => {
             e.preventDefault(); const toUpper = (str) => str ? str.replace(/\s+/g, ' ').trim().toUpperCase() : '';
             const data = { 
+                noPendaftaran: document.getElementById('es_noPendaftaran').value.trim(),
                 name: toUpper(document.getElementById('es_name').value), nisn: document.getElementById('es_nisn').value, jk: document.getElementById('es_jk').value, nik: document.getElementById('es_nik').value, tempatLahir: toUpper(document.getElementById('es_tempat').value), tanggalLahir: document.getElementById('es_tgl').value, agama: document.getElementById('es_agama').value,
                 asalSekolah: toUpper(document.getElementById('es_asalSekolah').value), provSekolah: toUpper(document.getElementById('es_provSekolah').value), kabSekolah: toUpper(document.getElementById('es_kabSekolah').value), kecSekolah: toUpper(document.getElementById('es_kecSekolah').value), jurusan1: document.getElementById('es_jur1').value, jurusan2: document.getElementById('es_jur2').value,
                 namaIbu: toUpper(document.getElementById('es_namaIbu').value), alamatOrtu: toUpper(document.getElementById('es_alamat').value), desaOrtu: toUpper(document.getElementById('es_desa').value), kecOrtu: toUpper(document.getElementById('es_kec').value), kabOrtu: toUpper(document.getElementById('es_kab').value), provOrtu: toUpper(document.getElementById('es_prov').value), hpOrtu: document.getElementById('es_hp').value, guruId: document.getElementById('es_guru').value || null
             };
             const s = state.siswa.find(x => x.id === id); if (s) Object.assign(s, data); render();
-            await saveDoc('siswa', data, id); document.getElementById('temp-modal-edit').remove(); showToast('Data lengkap siswa diperbarui');
+            await saveDoc('siswa', data, id);
+            await window.syncCounterWithHighestSiswa();
+            document.getElementById('temp-modal-edit').remove(); showToast('Data lengkap siswa diperbarui');
         };
 
         window.saveInfoBoardSettings = async (e) => {
