@@ -78,7 +78,7 @@
 
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, deleteDoc, onSnapshot, collection, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, getDoc, getDocs, setDoc, deleteDoc, onSnapshot, collection, query, where, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         let db, auth;
         if (!IS_PREVIEW) {
@@ -149,6 +149,7 @@
             state.siswaId = siswaId;
             if (role) localStorage.setItem('spmb_role', role); else localStorage.removeItem('spmb_role');
             if (siswaId) localStorage.setItem('spmb_siswaId', siswaId); else localStorage.removeItem('spmb_siswaId');
+            if (!IS_PREVIEW && db) window.syncRoleListeners();
         };
 
         window.showToast = function(message, type = 'success') {
@@ -276,6 +277,70 @@
         window.getAcronym = (name) => { if(!name) return ''; const words = name.replace(/[^a-zA-Z0-9 ]/g, '').trim().split(/\s+/); return words.length === 1 ? (words[0].length > 10 ? words[0].substring(0, 10) + '...' : words[0]) : words.map(w => w[0].toUpperCase()).join(''); };
         const getCollectionPath = (colName) => IS_PREVIEW ? `/artifacts/${appId}/public/data/${colName}` : colName;
 
+        let unsubSiswaCollection = null;
+        let unsubSingleSiswa = null;
+        let unsubGuruCollection = null;
+
+        // Mengatur listener koleksi siswa & guru secara hemat kuota sesuai Role yang aktif
+        window.syncRoleListeners = function() {
+            if (IS_PREVIEW || !db) return;
+            const isStaffRole = ['admin', 'admin_office', 'finance', 'seragam'].includes(state.role);
+
+            if (isStaffRole) {
+                if (unsubSingleSiswa) { unsubSingleSiswa(); unsubSingleSiswa = null; }
+                if (!unsubGuruCollection) {
+                    unsubGuruCollection = onSnapshot(collection(db, getCollectionPath('guru')), (snapshot) => {
+                        state.guru = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+                        render();
+                    });
+                }
+                if (!unsubSiswaCollection) {
+                    state.isDataLoaded = false;
+                    render();
+                    unsubSiswaCollection = onSnapshot(collection(db, getCollectionPath('siswa')), (snapshot) => {
+                        const allDocs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+                        state.allSiswaRaw = allDocs;
+                        state.siswa = allDocs.filter(x => !x.isDeleted);
+                        state.siswaTrash = allDocs.filter(x => x.isDeleted);
+                        state.isDataLoaded = true;
+                        render();
+                    }, (err) => {
+                        console.error("Firestore Listener Error:", err);
+                        state.isDataLoaded = true;
+                        render();
+                    });
+                }
+            } else if (state.role === 'siswa' && state.siswaId) {
+                if (unsubSiswaCollection) { unsubSiswaCollection(); unsubSiswaCollection = null; }
+                if (unsubGuruCollection) { unsubGuruCollection(); unsubGuruCollection = null; }
+                if (unsubSingleSiswa) { unsubSingleSiswa(); unsubSingleSiswa = null; }
+
+                state.isDataLoaded = false;
+                render();
+                unsubSingleSiswa = onSnapshot(doc(db, getCollectionPath('siswa'), state.siswaId), (docSnap) => {
+                    if (docSnap.exists() && !docSnap.data().isDeleted) {
+                        const sData = { id: docSnap.id, ...docSnap.data() };
+                        state.siswa = [sData];
+                    } else {
+                        state.siswa = [];
+                    }
+                    state.isDataLoaded = true;
+                    render();
+                }, (err) => {
+                    console.error("Siswa Doc Listener Error:", err);
+                    state.isDataLoaded = true;
+                    render();
+                });
+            } else {
+                // Halaman Depan (Publik): Matikan listener koleksi siswa agar hemat 98% kuota Read Firebase!
+                if (unsubSiswaCollection) { unsubSiswaCollection(); unsubSiswaCollection = null; }
+                if (unsubSingleSiswa) { unsubSingleSiswa(); unsubSingleSiswa = null; }
+                if (unsubGuruCollection) { unsubGuruCollection(); unsubGuruCollection = null; }
+                state.isDataLoaded = true;
+                render();
+            }
+        };
+
         async function initAuthAndData() {
             if (IS_PREVIEW) { state.isDataLoaded = true; render(); return; }
             render(); // Tampilkan Skeleton Loading terlebih dahulu sebelum snapshot selesai
@@ -283,8 +348,10 @@
                 if (!auth.currentUser) {
                     await signInAnonymously(auth);
                 }
-                const cols = ['gelombang', 'jurusan', 'guru', 'siswa', 'settings'];
-                cols.forEach(colName => {
+                // Hanya muat koleksi ringan (gelombang, jurusan, settings) untuk publik
+                const lightCols = ['gelombang', 'jurusan', 'settings'];
+                let loadedCount = 0;
+                lightCols.forEach(colName => {
                     onSnapshot(collection(db, getCollectionPath(colName)), (snapshot) => {
                         if (colName === 'settings') { 
                             snapshot.docs.forEach(doc => { 
@@ -308,19 +375,20 @@
                                     }; 
                                 }
                             }); 
-                        } else if (colName === 'siswa') {
-                            const allDocs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                            state.allSiswaRaw = allDocs;
-                            state.siswa = allDocs.filter(x => !x.isDeleted);
-                            state.siswaTrash = allDocs.filter(x => x.isDeleted);
-                            state.isDataLoaded = true;
                         } else { 
                             state[colName] = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })); 
+                        }
+                        loadedCount++;
+                        if (loadedCount >= lightCols.length && !state.role) {
+                            state.isDataLoaded = true;
                         }
                         render();
                     });
                 });
-            } catch (e) { alert("GAGAL KONEKSI KE FIREBASE!\n\nPesan Error: " + e.message); }
+
+                // Aktifkan listener sesuai role jika ada sesi tersimpan
+                window.syncRoleListeners();
+            } catch (e) { showToast("Koneksi ke database sedang padat: " + e.message, "error"); }
         }
 
         async function saveDoc(colName, data, docId = null) {
@@ -716,47 +784,61 @@
         window.openForgotNoModal = () => {
             closeModal('login-modal');
             const m = document.getElementById('forgot-no-modal');
-            if (!m) return;
-            m.classList.remove('hidden');
-            const input = document.getElementById('checkNisnInput');
             const res = document.getElementById('forgot-no-result');
-            if (input) { input.value = ''; setTimeout(() => input.focus(), 50); }
-            if (res) { res.classList.add('hidden'); res.innerHTML = ''; }
+            const inp = document.getElementById('checkNisnInput');
+            if (res) { res.innerHTML = ''; res.classList.add('hidden'); }
+            if (inp) inp.value = '';
+            if (m) m.classList.remove('hidden');
         };
 
-        window.handleCheckNisn = (e) => {
+        window.handleCheckNisn = async (e) => {
             e.preventDefault();
             const nisn = (document.getElementById('checkNisnInput').value || '').trim();
             const resBox = document.getElementById('forgot-no-result');
             if (!resBox) return;
 
-            const found = state.siswa.find(s => String(s.nisn).trim() === nisn);
             resBox.classList.remove('hidden');
+            resBox.innerHTML = `<div class="p-4 text-center text-xs text-gray-400 animate-pulse">Mencari data NISN ${nisn}...</div>`;
 
-            if (found) {
-                const jurName = state.jurusan.find(j => j.id === found.jurusan1)?.name || '-';
-                resBox.innerHTML = `
-                    <div class="p-5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-center">
-                        <div class="text-[10px] font-bold uppercase tracking-widest text-emerald-600 dark:text-emerald-400 mb-1">Data Ditemukan</div>
-                        <div class="font-black text-lg text-gray-800 dark:text-white uppercase mb-1">${found.name}</div>
-                        <div class="text-xs text-gray-500 dark:text-gray-400 mb-3">${found.asalSekolah || '-'} • ${jurName}</div>
-                        <div class="bg-white dark:bg-gray-900 rounded-xl p-3 border border-emerald-500/20 mb-4">
-                            <span class="block text-[10px] uppercase font-bold text-gray-400">Nomor Pendaftaran Anda</span>
-                            <span class="text-4xl font-black text-primary font-mono tracking-wider">${found.noPendaftaran}</span>
+            try {
+                let found = state.siswa.find(s => String(s.nisn).trim() === nisn && !s.isDeleted);
+                if (!found && !IS_PREVIEW) {
+                    // Query spesifik 1 dokumen ke Firestore (Hanya menggunakan 1 kuota Read!)
+                    const q = query(collection(db, getCollectionPath('siswa')), where('nisn', '==', nisn));
+                    const snap = await getDocs(q);
+                    snap.forEach(d => {
+                        const data = d.data();
+                        if (!data.isDeleted) found = { id: d.id, ...data };
+                    });
+                }
+
+                if (found) {
+                    const jurName = state.jurusan.find(j => j.id === found.jurusan1)?.name || '-';
+                    resBox.innerHTML = `
+                        <div class="p-5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-center">
+                            <div class="text-[10px] font-bold uppercase tracking-widest text-emerald-600 dark:text-emerald-400 mb-1">Data Ditemukan</div>
+                            <div class="font-black text-lg text-gray-800 dark:text-white uppercase mb-1">${found.name}</div>
+                            <div class="text-xs text-gray-500 dark:text-gray-400 mb-3">${found.asalSekolah || '-'} • ${jurName}</div>
+                            <div class="bg-white dark:bg-gray-900 rounded-xl p-3 border border-emerald-500/20 mb-4">
+                                <span class="block text-[10px] uppercase font-bold text-gray-400">Nomor Pendaftaran Anda</span>
+                                <span class="text-4xl font-black text-primary font-mono tracking-wider">${found.noPendaftaran}</span>
+                            </div>
+                            <button type="button" onclick="window.useFoundNoForLogin('${found.noPendaftaran}')" class="w-full py-3 px-4 bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-bold text-xs rounded-xl shadow hover:opacity-90 transition-all flex items-center justify-center gap-2">
+                                <i class="ph ph-sign-in text-base"></i> Gunakan untuk Login Sekarang
+                            </button>
                         </div>
-                        <button type="button" onclick="window.useFoundNoForLogin('${found.noPendaftaran}')" class="w-full py-3 px-4 bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-bold text-xs rounded-xl shadow hover:opacity-90 transition-all flex items-center justify-center gap-2">
-                            <i class="ph ph-sign-in text-base"></i> Gunakan untuk Login Sekarang
-                        </button>
-                    </div>
-                `;
-            } else {
-                resBox.innerHTML = `
-                    <div class="p-4 rounded-2xl bg-red-500/10 border border-red-500/30 text-center">
-                        <i class="ph ph-warning-circle text-2xl text-red-500 mb-1"></i>
-                        <p class="text-xs font-bold text-red-500">NISN ${nisn} belum terdaftar di sistem.</p>
-                        <p class="text-[11px] text-gray-500 dark:text-gray-400 mt-1">Pastikan 10 digit NISN sudah benar atau silakan isi Formulir Pendaftaran jika belum pernah mendaftar.</p>
-                    </div>
-                `;
+                    `;
+                } else {
+                    resBox.innerHTML = `
+                        <div class="p-4 rounded-2xl bg-red-500/10 border border-red-500/30 text-center">
+                            <i class="ph ph-warning-circle text-2xl text-red-500 mb-1"></i>
+                            <p class="text-xs font-bold text-red-500">NISN ${nisn} belum terdaftar di sistem.</p>
+                            <p class="text-[11px] text-gray-500 dark:text-gray-400 mt-1">Pastikan 10 digit NISN sudah benar atau silakan isi Formulir Pendaftaran jika belum pernah mendaftar.</p>
+                        </div>
+                    `;
+                }
+            } catch (err) {
+                resBox.innerHTML = `<div class="p-4 rounded-2xl bg-red-500/10 border border-red-500/30 text-center text-xs text-red-500 font-bold">Gagal memeriksa NISN: ${err.message}</div>`;
             }
         };
 
@@ -813,32 +895,49 @@
         window.handleRegisterBaru = async (e) => {
             e.preventDefault();
             const formElement = e.target; const btnSubmit = document.getElementById('btnSubmitFormBaru');
-            const nisn = document.getElementById('spmbNisn').value; if (nisn.length !== 10) return showToast("NISN harus 10 digit!", "error");
+            const nisn = document.getElementById('spmbNisn').value.trim(); if (nisn.length !== 10) return showToast("NISN harus 10 digit!", "error");
             const jur1 = document.getElementById('spmbJurusan1').value; const jur2 = document.getElementById('spmbJurusan2').value;
             if (!jur1 || !jur2) return showToast("Pilihan Jurusan 1 dan 2 wajib diisi!", "error");
             if (jur1 === jur2) return showToast("Pilihan Jurusan tidak boleh sama!", "error");
-
-            const exists = state.siswa.find(s => s.nisn === nisn);
-            if (exists) return showToast(`Data Kembar! NISN terdaftar di No: ${exists.noPendaftaran}`, "error");
 
             const activeGelombang = state.gelombang.find(g => g.isActive);
             if (!activeGelombang) return showToast("Tidak ada gelombang aktif!", "error");
 
             btnSubmit.disabled = true; btnSubmit.innerHTML = "Memproses...";
 
-            const toUpper = (str) => str ? str.replace(/\s+/g, ' ').trim().toUpperCase() : '';
-
-            const baseSiswa = {
-                gelombangId: null, gelombangName: null, 
-                asalSekolah: toUpper(document.getElementById('spmbAsalSekolah').value), provSekolah: toUpper(document.getElementById('spmbProvSekolah').value), kabSekolah: toUpper(document.getElementById('spmbKabSekolah').value), kecSekolah: toUpper(document.getElementById('spmbKecSekolah').value),
-                name: toUpper(document.getElementById('spmbName').value), nisn: nisn, jk: document.getElementById('spmbJk').value, nik: document.getElementById('spmbNik').value, tempatLahir: toUpper(document.getElementById('spmbTempatLahir').value), tanggalLahir: document.getElementById('spmbTanggalLahir').value, agama: document.getElementById('spmbAgama').value,
-                namaIbu: toUpper(document.getElementById('spmbNamaIbu').value), alamatOrtu: toUpper(document.getElementById('spmbAlamatOrtu').value), desaOrtu: toUpper(document.getElementById('spmbDesaOrtu').value), kecOrtu: toUpper(document.getElementById('spmbKecOrtu').value), kabOrtu: toUpper(document.getElementById('spmbKabOrtu').value), provOrtu: toUpper(document.getElementById('spmbProvOrtu').value), hpOrtu: document.getElementById('spmbHpOrtu').value,
-                jurusan1: jur1, jurusan2: jur2, guruId: null, checklist1: false, checklist2: false, isDeleted: false,
-                seragam: { putihAbu: false, almamater: false, pramuka: false, olahraga: false, praktik: false, topi: false, sabuk: false, bet: false },
-                createdAt: Date.now(), tanggalDaftar: Date.now()
-            };
-
             try {
+                // Cek duplikat NISN secara hemat kuota langsung ke server (hanya 1 Read)
+                if (!IS_PREVIEW) {
+                    const nisnQuery = query(collection(db, getCollectionPath('siswa')), where('nisn', '==', nisn));
+                    const nisnSnap = await getDocs(nisnQuery);
+                    let duplicateSiswa = null;
+                    nisnSnap.forEach(d => {
+                        if (!d.data().isDeleted) duplicateSiswa = d.data();
+                    });
+                    if (duplicateSiswa) {
+                        btnSubmit.disabled = false; btnSubmit.innerHTML = "Kirim Formulir Pendaftaran";
+                        return showToast(`Data Kembar! NISN terdaftar di No: ${duplicateSiswa.noPendaftaran}`, "error");
+                    }
+                } else {
+                    const exists = state.siswa.find(s => s.nisn === nisn);
+                    if (exists) {
+                        btnSubmit.disabled = false; btnSubmit.innerHTML = "Kirim Formulir Pendaftaran";
+                        return showToast(`Data Kembar! NISN terdaftar di No: ${exists.noPendaftaran}`, "error");
+                    }
+                }
+
+                const toUpper = (str) => str ? str.replace(/\s+/g, ' ').trim().toUpperCase() : '';
+
+                const baseSiswa = {
+                    gelombangId: null, gelombangName: null, 
+                    asalSekolah: toUpper(document.getElementById('spmbAsalSekolah').value), provSekolah: toUpper(document.getElementById('spmbProvSekolah').value), kabSekolah: toUpper(document.getElementById('spmbKabSekolah').value), kecSekolah: toUpper(document.getElementById('spmbKecSekolah').value),
+                    name: toUpper(document.getElementById('spmbName').value), nisn: nisn, jk: document.getElementById('spmbJk').value, nik: document.getElementById('spmbNik').value, tempatLahir: toUpper(document.getElementById('spmbTempatLahir').value), tanggalLahir: document.getElementById('spmbTanggalLahir').value, agama: document.getElementById('spmbAgama').value,
+                    namaIbu: toUpper(document.getElementById('spmbNamaIbu').value), alamatOrtu: toUpper(document.getElementById('spmbAlamatOrtu').value), desaOrtu: toUpper(document.getElementById('spmbDesaOrtu').value), kecOrtu: toUpper(document.getElementById('spmbKecOrtu').value), kabOrtu: toUpper(document.getElementById('spmbKabOrtu').value), provOrtu: toUpper(document.getElementById('spmbProvOrtu').value), hpOrtu: document.getElementById('spmbHpOrtu').value,
+                    jurusan1: jur1, jurusan2: jur2, guruId: null, checklist1: false, checklist2: false, isDeleted: false,
+                    seragam: { putihAbu: false, almamater: false, pramuka: false, olahraga: false, praktik: false, topi: false, sabuk: false, bet: false },
+                    createdAt: Date.now(), tanggalDaftar: Date.now()
+                };
+
                 let finalSiswa = null;
 
                 if (IS_PREVIEW) {
@@ -924,10 +1023,33 @@
                 catch (err) { return showToast("Gagal login admin", "error"); }
             } else if (role === 'siswa') {
                 const id = document.getElementById('loginId').value.trim();
-                const s = state.siswa.find(x => String(x.noPendaftaran).trim() === id);
+                let s = state.siswa.find(x => String(x.noPendaftaran).trim() === id && !x.isDeleted);
+                
+                // Jika dari halaman depan belum memuat koleksi siswa, cari langsung 1 dokumen ke Firestore
+                if (!s && !IS_PREVIEW) {
+                    try {
+                        const directRef = doc(db, getCollectionPath('siswa'), `reg_${id}`);
+                        const directSnap = await getDoc(directRef);
+                        if (directSnap.exists() && !directSnap.data().isDeleted) {
+                            s = { id: directSnap.id, ...directSnap.data() };
+                        } else {
+                            const q = query(collection(db, getCollectionPath('siswa')), where('noPendaftaran', '==', id));
+                            const qSnap = await getDocs(q);
+                            qSnap.forEach(d => {
+                                if (!d.data().isDeleted) s = { id: d.id, ...d.data() };
+                            });
+                        }
+                    } catch (err) {
+                        return showToast("Gagal memeriksa data login: " + err.message, "error");
+                    }
+                }
+
                 if (s) {
                     const cleanName = (str) => (str || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
-                    if (cleanName(s.namaIbu) === cleanName(pass)) { window.saveSession(role, s.id); } 
+                    if (cleanName(s.namaIbu) === cleanName(pass)) { 
+                        state.siswa = [s];
+                        window.saveSession(role, s.id); 
+                    } 
                     else { return showToast("Password (Nama Ibu) salah", "error"); }
                 } else return showToast("Nomor Pendaftaran tidak ditemukan", "error");
             } else {
