@@ -2,7 +2,7 @@
 <html lang="id" class="light">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>SINERGI SPMB</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
@@ -25,10 +25,18 @@
         .glass { background: rgba(255, 255, 255, 0.7); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.18); }
         .dark .glass { background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.05); }
         
-        html, body { overflow: hidden !important; margin: 0 !important; padding: 0 !important; width: 100% !important; height: 100% !important; }
+        html, body { overflow: hidden !important; margin: 0 !important; padding: 0 !important; width: 100% !important; height: 100% !important; height: 100dvh !important; }
         #navbar-iframe, .Navbar { display: none !important; }
         
-        #app-root { position: fixed !important; top: 0 !important; left: 0 !important; width: 100vw !important; height: 100vh !important; z-index: 9999999 !important; margin: 0 !important; padding: 0 !important; }
+        #app-root { position: fixed !important; top: 0 !important; left: 0 !important; width: 100vw !important; height: 100vh !important; height: 100dvh !important; z-index: 9999999 !important; margin: 0 !important; padding: 0 !important; }
+
+        /* Jarak aman menu navigasi bawah agar tidak terhalang tombol bawaan smartphone */
+        @media (max-width: 767px) {
+            .mobile-nav-safe {
+                padding-top: 10px !important;
+                padding-bottom: calc(18px + env(safe-area-inset-bottom, 12px)) !important;
+            }
+        }
 
         /* Animasi Papan Informasi Menarik Perhatian */
         @keyframes bellRing {
@@ -887,7 +895,7 @@
                         </div>
 
                         ${infoBoard.isActive ? `
-                            <button type="button" onclick="window.openInfoBoardModal()" class="mt-1 relative group flex items-center gap-3 px-4 sm:px-5 py-3 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 text-white font-extrabold text-xs sm:text-sm shadow-xl shadow-amber-500/30 hover:shadow-amber-500/50 transition-all transform hover:-translate-y-0.5 active:scale-95 border border-amber-300/40 w-full justify-center">
+                            <button type="button" onclick="window.openInfoBoardModal()" class="w-full relative flex items-center justify-center gap-3 bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 text-white px-4 py-3 rounded-2xl shadow-lg shadow-amber-500/25 hover:shadow-amber-500/40 transition-all transform active:scale-95 border border-amber-300/40">
                                 ${!isInfoRead ? `
                                     <span class="absolute -top-2 -right-2 flex h-5 w-5">
                                         <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-90"></span>
@@ -899,7 +907,7 @@
                                 </div>
                                 <div class="text-left leading-tight">
                                     <span class="block text-[10px] uppercase tracking-wider text-amber-100 font-bold">Wajib Dibaca Calon Siswa</span>
-                                    <span class="block font-black tracking-wide">Papan Informasi Pendaftaran</span>
+                                    <span class="block text-sm font-black tracking-wide">Papan Informasi Pendaftaran</span>
                                 </div>
                             </button>
                         ` : ''}
@@ -971,7 +979,7 @@
                     </div>
 
                     ${infoBoard.isActive ? `
-                        <button type="button" onclick="window.openInfoBoardModal()" class="fixed bottom-4 right-4 z-[99999] flex items-center gap-2 bg-gradient-to-tr from-amber-500 to-rose-500 text-white p-3.5 sm:px-5 sm:py-3.5 rounded-full shadow-2xl shadow-amber-500/40 hover:scale-105 active:scale-95 transition-all border-2 border-white/80">
+                        <button type="button" onclick="window.openInfoBoardModal()" style="bottom: calc(1.25rem + env(safe-area-inset-bottom, 8px));" class="fixed right-4 z-[99999] flex items-center gap-2 bg-gradient-to-tr from-amber-500 to-rose-500 text-white p-3.5 sm:px-5 sm:py-3.5 rounded-full shadow-2xl shadow-amber-500/40 hover:scale-105 active:scale-95 transition-all border-2 border-white/80">
                             ${!isInfoRead ? `
                                 <span class="absolute -top-1 -left-1 flex h-4 w-4">
                                     <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-90"></span>
@@ -1198,7 +1206,10 @@
         };
         window.closeModal = (id) => {
             const modalEl = document.getElementById(id);
-            if (modalEl) modalEl.classList.add('hidden');
+            if (modalEl) {
+                modalEl.classList.add('hidden');
+                modalEl.classList.remove('flex');
+            }
         };
         window.togglePassword = () => { const input = document.getElementById('loginPassword'); const icon = document.getElementById('eyeIcon'); if (input.type === 'password') { input.type = 'text'; icon.classList.replace('ph-eye', 'ph-eye-slash'); } else { input.type = 'password'; icon.classList.replace('ph-eye-slash', 'ph-eye'); } };
 
@@ -1449,15 +1460,15 @@
 
             const currentTab = window.currentTab || navItems[0]?.id;
             const navHTML = state.role === 'siswa' ? '' : `
-                <nav class="bg-[#0f172a] border-t border-gray-800 md:border-t-0 md:border-r w-full md:w-72 flex md:flex-col justify-between md:justify-start p-2 md:p-6 z-40 no-print shadow-2xl relative">
+                <nav class="mobile-nav-safe bg-[#0f172a] border-t border-gray-800 md:border-t-0 md:border-r w-full md:w-72 flex md:flex-col justify-between md:justify-start px-2.5 md:p-6 z-40 no-print shadow-[0_-10px_25px_rgba(0,0,0,0.45)] md:shadow-2xl relative">
                     <div class="hidden md:flex flex-col mb-10 pt-2">
                         <div class="flex items-center gap-3"><img src="https://iili.io/nviRLB9.jpg" class="w-10 h-10 rounded-lg shadow-lg"><h2 class="font-black text-2xl text-white tracking-tight">SINERGI</h2></div>
                         <span class="text-[10px] uppercase tracking-widest text-emerald-400 font-bold mt-1 ml-13">Portal ${roleDisplayMap[state.role] || state.role}</span>
                     </div>
-                    <div class="gap-1.5 md:space-y-1 w-full flex md:flex-col overflow-x-auto md:overflow-visible no-scrollbar px-1 md:px-0">
+                    <div class="gap-2 md:space-y-1 w-full flex md:flex-col overflow-x-auto md:overflow-visible no-scrollbar px-1 md:px-0">
                     ${navItems.map(i => `
-                        <button onclick="setTab('${i.id}')" class="${navItems.length <= 4 ? 'flex-1 md:flex-initial' : 'min-w-[74px]'} flex flex-col md:flex-row items-center justify-center md:justify-start gap-1 md:gap-4 px-3.5 md:px-5 py-2.5 md:py-3 rounded-xl transition-all duration-300 md:w-auto shrink-0 ${currentTab === i.id ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20 font-bold translate-x-0 md:translate-x-2' : 'text-gray-400 hover:text-white hover:bg-white/5'}">
-                            <i class="ph ${i.icon} text-xl md:text-xl"></i><span class="text-[11px] md:text-sm md:text-left whitespace-nowrap leading-tight">${i.text}</span>
+                        <button onclick="setTab('${i.id}')" class="${navItems.length <= 4 ? 'flex-1 md:flex-initial' : 'min-w-[80px]'} min-h-[54px] md:min-h-0 flex flex-col md:flex-row items-center justify-center md:justify-start gap-1.5 md:gap-4 px-3.5 md:px-5 py-2.5 md:py-3 rounded-xl transition-all duration-300 md:w-auto shrink-0 ${currentTab === i.id ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20 font-bold translate-x-0 md:translate-x-2' : 'text-gray-400 hover:text-white hover:bg-white/5 bg-white/[0.02] md:bg-transparent'}">
+                            <i class="ph ${i.icon} text-xl md:text-xl"></i><span class="text-[11px] md:text-sm md:text-left whitespace-nowrap leading-tight font-semibold">${i.text}</span>
                         </button>
                     `).join('')}
                     </div>
@@ -1474,7 +1485,7 @@
                             <div class="flex gap-2"><button onclick="toggleTheme()" class="p-2 glass rounded-full"><i class="ph ${state.theme === 'light' ? 'ph-moon' : 'ph-sun'}"></i></button><button onclick="logout()" class="p-2 bg-red-50 text-red-500 rounded-full"><i class="ph ph-sign-out"></i></button></div>
                         </header>
                     `}
-                    <main class="flex-grow overflow-y-auto overflow-x-hidden p-3.5 sm:p-5 md:p-8 pb-24 md:pb-8 relative custom-scroll">
+                    <main class="flex-grow overflow-y-auto overflow-x-hidden p-3.5 sm:p-5 md:p-8 pb-28 md:pb-8 relative custom-scroll">
                         ${isPremium ? `<div class="absolute top-0 left-0 w-full h-96 bg-gradient-to-br from-emerald-900/20 via-blue-900/10 to-transparent -z-10 pointer-events-none"></div>` : ''}
                         ${isPremium ? `
                             <div class="md:hidden flex justify-between items-center mb-4 pb-3 border-b border-gray-800/80">
@@ -1492,7 +1503,7 @@
                         ` : ''}
                         <div class="max-w-7xl mx-auto w-full" id="main-content-area">${content}</div>
                     </main>
-                    ${state.role !== 'siswa' ? `<div class="md:hidden border-t border-gray-800 z-50 shrink-0">${navHTML}</div>` : ''}
+                    ${state.role !== 'siswa' ? `<div class="md:hidden bg-[#0f172a] border-t border-gray-800 z-50 shrink-0">${navHTML}</div>` : ''}
                 </div>
             `;
         }
@@ -1570,6 +1581,11 @@
 
                 const terbaru5 = [...state.siswa]
                     .sort((a, b) => (b.tanggalDaftar || b.createdAt || 0) - (a.tanggalDaftar || a.createdAt || 0))
+                    .slice(0, 5);
+
+                const terbaruLunas5 = [...state.siswa]
+                    .filter(s => s.checklist2)
+                    .sort((a, b) => (b.waktuLunas || b.tanggalDaftar || b.createdAt || 0) - (a.waktuLunas || a.tanggalDaftar || a.createdAt || 0))
                     .slice(0, 5);
 
                 const topGuru5 = state.guru.map(g => {
@@ -1651,16 +1667,23 @@
                         </div>
                         <div class="${panelCard} h-80 flex flex-col"><h3 class="font-bold text-gray-300 mb-4 text-sm tracking-wide">Top 5 Asal Kecamatan</h3><div class="flex-grow relative"><canvas id="chartKecamatan"></canvas></div></div>
                         <div class="${panelCard} h-80 flex flex-col"><h3 class="font-bold text-gray-300 mb-4 text-sm tracking-wide">Top 5 Asal Sekolah (SMP/MTs)</h3><div class="flex-grow relative"><canvas id="chartAsalSekolah"></canvas></div></div>
-                        <div class="${panelCard} h-80 flex flex-col"><h3 class="font-bold text-gray-300 mb-4 text-sm tracking-wide">Gelombang & Pendaftar</h3><div class="flex-grow relative"><canvas id="chartGelombang"></canvas></div></div>
                         <div class="${panelCard} h-80 flex flex-col"><h3 class="font-bold text-gray-300 mb-4 text-sm tracking-wide">Gender Pendaftar</h3><div class="flex-grow relative"><canvas id="chartJurusan"></canvas></div></div>
+                        <div class="${panelCard} h-80 flex flex-col">
+                            <div class="flex items-center justify-between gap-2 mb-4">
+                                <h3 class="font-bold text-gray-300 text-sm tracking-wide">Sebaran Gender per Jurusan</h3>
+                                <span class="text-[10px] text-gray-400">Laki-laki & Perempuan</span>
+                            </div>
+                            <div class="flex-grow relative"><canvas id="chartGenderJurusan"></canvas></div>
+                        </div>
+                        <div class="${panelCard} md:col-span-2 h-80 flex flex-col"><h3 class="font-bold text-gray-300 mb-4 text-sm tracking-wide">Gelombang & Pendaftar</h3><div class="flex-grow relative"><canvas id="chartGelombang"></canvas></div></div>
                     </div>
 
-                    <!-- 4. Kotak "5 Pendaftar Terbaru" & "Top 5 Guru Referal" di Bagian Bawah Beranda -->
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                    <!-- 4. Kotak "5 Pendaftar Terbaru", "5 Siswa Baru Lunas" & "Top 5 Guru Referal" di Bagian Bawah Beranda -->
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
                         <div class="${panelCard}">
                             <div class="flex items-center justify-between mb-4 pb-3 border-b border-gray-800">
                                 <h3 class="font-bold text-white text-base flex items-center gap-2"><i class="ph ph-clock-clockwise text-blue-400 text-xl"></i> 5 Pendaftar Terbaru</h3>
-                                <button onclick="setTab('siswa')" class="text-xs font-bold text-blue-400 hover:underline">Lihat Semua</button>
+                                <button onclick="setTab('siswa')" class="text-xs font-bold text-blue-400 hover:underline">Semua</button>
                             </div>
                             <div class="space-y-3">
                                 ${terbaru5.length === 0 ? '<div class="text-center text-gray-500 py-8 text-sm">Belum ada data pendaftar.</div>' : terbaru5.map(s => {
@@ -1669,13 +1692,40 @@
                                         <div class="bg-gray-900/80 border border-gray-800 p-3.5 rounded-2xl flex items-center justify-between gap-3">
                                             <div class="min-w-0">
                                                 <div class="flex items-center gap-2">
-                                                    <span class="text-xs font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">#${s.noPendaftaran}</span>
+                                                    <span class="text-xs font-mono font-bold text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded">#${s.noPendaftaran}</span>
                                                     <span class="font-bold text-sm text-white truncate">${s.name}</span>
                                                 </div>
                                                 <div class="text-xs text-gray-400 mt-1 truncate">${s.asalSekolah || '-'} • <span class="text-gray-300">${window.getAcronym(jurName)}</span></div>
                                             </div>
                                             <div class="shrink-0 text-right">
                                                 ${s.checklist2 ? '<span class="text-[10px] font-bold uppercase px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">Lunas</span>' : '<span class="text-[10px] font-bold uppercase px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-400 border border-amber-500/30">Pendaftar</span>'}
+                                            </div>
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                        </div>
+
+                        <div class="${panelCard} border-emerald-500/20">
+                            <div class="flex items-center justify-between mb-4 pb-3 border-b border-gray-800">
+                                <h3 class="font-bold text-white text-base flex items-center gap-2"><i class="ph-fill ph-seal-check text-emerald-400 text-xl"></i> 5 Siswa Baru Lunas</h3>
+                                <span class="text-[11px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full">Total: ${totalLunas}</span>
+                            </div>
+                            <div class="space-y-3">
+                                ${terbaruLunas5.length === 0 ? '<div class="text-center text-gray-500 py-8 text-sm">Belum ada siswa yang lunas.</div>' : terbaruLunas5.map(s => {
+                                    const jurName = state.jurusan.find(j => j.id === s.jurusan1)?.name || '-';
+                                    return `
+                                        <div class="bg-gray-900/80 border border-emerald-500/15 p-3.5 rounded-2xl flex items-center justify-between gap-3">
+                                            <div class="min-w-0">
+                                                <div class="flex items-center gap-2">
+                                                    <span class="text-xs font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">#${s.noPendaftaran}</span>
+                                                    <span class="font-bold text-sm text-white truncate">${s.name}</span>
+                                                </div>
+                                                <div class="text-xs text-gray-400 mt-1 truncate">${s.asalSekolah || '-'} • <span class="text-gray-300">${window.getAcronym(jurName)}</span></div>
+                                            </div>
+                                            <div class="shrink-0 text-right">
+                                                <span class="text-[10px] font-bold uppercase px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 block">${s.gelombangName || 'Lunas'}</span>
+                                                ${s.waktuLunas ? `<span class="text-[10px] text-gray-500 block mt-1">${formatDateIndo(s.waktuLunas)}</span>` : ''}
                                             </div>
                                         </div>
                                     `;
@@ -2283,10 +2333,11 @@
             const ctxKec = document.getElementById('chartKecamatan'); 
             const ctxSekolah = document.getElementById('chartAsalSekolah'); 
             const ctxJur = document.getElementById('chartJurusan'); 
+            const ctxGenderJur = document.getElementById('chartGenderJurusan');
             const ctxGel = document.getElementById('chartGelombang');
             if(!ctxKec || !ctxJur || !ctxGel) return;
 
-            [ctxPeminatLunas, ctxKec, ctxSekolah, ctxJur, ctxGel].forEach(destroyExistingChart);
+            [ctxPeminatLunas, ctxKec, ctxSekolah, ctxJur, ctxGenderJur, ctxGel].forEach(destroyExistingChart);
 
             Chart.defaults.color = '#9ca3af'; Chart.defaults.borderColor = 'rgba(255,255,255,0.05)';
 
@@ -2375,198 +2426,30 @@
                 data: { labels: [`Laki-laki (${l})`, `Perempuan (${p})`], datasets: [{ data: [l, p], backgroundColor: ['#10b981', '#f43f5e'], borderWidth: 0 }] },
                 options: { responsive: true, maintainAspectRatio: false, cutout: '68%', plugins: { doughnutCenterText: { label: 'TOTAL SISWA' }, legend: { position: 'bottom', labels: { boxWidth: 12, color: '#e5e7eb' } } } }
             });
-        };
 
-        window.initFinanceCharts = () => {
-            const ctx1 = document.getElementById('chartFinOverall'); const ctx2 = document.getElementById('chartFinJurusan');
-            if (!ctx1 || !ctx2) return;
-            
-            [ctx1, ctx2].forEach(destroyExistingChart);
+            // Grafik Sebaran Laki-laki & Perempuan di Setiap Jurusan
+            if (ctxGenderJur) {
+                const jurLabelsGender = state.jurusan.map(j => window.getAcronym(j.name));
+                const lakiPerJur = state.jurusan.map(j => state.siswa.filter(s => s.jurusan1 === j.id && s.jk === 'Laki-laki').length);
+                const perempuanPerJur = state.jurusan.map(j => state.siswa.filter(s => s.jurusan1 === j.id && s.jk === 'Perempuan').length);
 
-            Chart.defaults.color = '#9ca3af'; Chart.defaults.borderColor = 'rgba(255,255,255,0.05)';
-
-            const c1Only = state.siswa.filter(s => s.checklist1 && !s.checklist2).length;
-            const c2 = state.siswa.filter(s => s.checklist2).length;
-            const none = state.siswa.filter(s => !s.checklist1 && !s.checklist2).length;
-            
-            new Chart(ctx1, {
-                type: 'doughnut',
-                data: { labels: [`Selesai C1 (${c1Only})`, `Selesai C2 / Lunas (${c2})`, `Belum Ada (${none})`], datasets: [{ data: [c1Only, c2, none], backgroundColor: ['#3b82f6', '#10b981', '#6b7280'], borderWidth: 0 }] },
-                options: { responsive: true, maintainAspectRatio: false, cutout: '75%', plugins: { doughnutCenterText: { label: 'PENDAFTAR' }, legend: { position: 'bottom', labels: { boxWidth: 12 } } } }
-            });
-
-            const jurLabels = state.jurusan.map(j => window.getAcronym(j.name));
-            const jurData = state.jurusan.map(j => state.siswa.filter(s => s.jurusan1 === j.id && s.checklist2).length);
-
-            new Chart(ctx2, {
-                type: 'bar',
-                data: { labels: jurLabels, datasets: [{ label: 'Lunas', data: jurData, backgroundColor: ['#0ea5e9', '#8b5cf6', '#eab308', '#f43f5e', '#10b981'], borderRadius: 6 }] },
-                options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 20 } }, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
-            });
-        };
-
-        // ==========================================
-        // ACTION HANDLERS
-        // ==========================================
-        window.editGelombang = (id) => {
-            const m = document.getElementById('modal-gel'); m.classList.remove('hidden'); m.classList.add('flex');
-            const f = document.getElementById('formGel');
-            if(id) { const g = state.gelombang.find(x=>x.id===id); document.getElementById('gelId').value = g.id; document.getElementById('gelName').value = g.name; document.getElementById('gelStartId').value = g.startId; document.getElementById('gelWa').value = g.waLink || ''; document.getElementById('gelActive').checked = g.isActive; } 
-            else { f.reset(); document.getElementById('gelId').value = ''; }
-        };
-        window.saveGelombang = async (e) => {
-            e.preventDefault(); const id = document.getElementById('gelId').value; const isActive = document.getElementById('gelActive').checked;
-            if (isActive) { for (let g of state.gelombang) { if (g.id !== id && g.isActive) await saveDoc('gelombang', { isActive: false }, g.id); } }
-            await saveDoc('gelombang', { name: document.getElementById('gelName').value, startId: parseInt(document.getElementById('gelStartId').value), waLink: document.getElementById('gelWa').value, isActive: isActive }, id || null);
-            closeModal('modal-gel');
-        };
-
-        window.saveJurusan = async (e) => { e.preventDefault(); const id = document.getElementById('jurEditId').value; await saveDoc('jurusan', { name: document.getElementById('newJurName').value }, id || null); e.target.reset(); document.getElementById('jurEditId').value = ''; };
-        window.saveGuru = async (e) => { e.preventDefault(); await saveDoc('guru', { name: document.getElementById('newGuruName').value }); e.target.reset(); };
-
-        window.viewGuruDetails = (id) => {
-            const g = state.guru.find(x => x.id === id);
-            const list = state.siswa.filter(x => x.guruId === id).sort((a,b) => parseInt(a.noPendaftaran) - parseInt(b.noPendaftaran));
-            
-            document.getElementById('guru-details-name').innerHTML = `<i class="ph ph-chalkboard-teacher"></i> ${g.name} (${list.length} Siswa)`;
-            
-            const listHTML = list.length === 0 ? `<div class="text-center text-gray-500 py-10">Belum ada siswa</div>` : 
-                list.map(s => {
-                    const j = state.jurusan.find(x=>x.id===s.jurusan1)?.name || '-';
-                    return `<div class="bg-gray-900 p-4 rounded-xl border border-gray-800 flex justify-between items-center">
-                        <div>
-                            <div class="font-bold text-gray-200">${s.name}</div>
-                            <div class="text-xs font-mono text-gray-500 mt-1">No: ${s.noPendaftaran} | ${window.getAcronym(j)}</div>
-                        </div>
-                        <div class="text-xs font-bold ${s.checklist2 ? 'text-emerald-400 bg-emerald-500/10' : 'text-amber-400 bg-amber-500/10'} px-2.5 py-1 rounded-md border ${s.checklist2 ? 'border-emerald-500/20' : 'border-amber-500/20'}">
-                            ${s.checklist2 ? 'Lunas' : 'Pendaftar'}
-                        </div>
-                    </div>`;
-                }).join('');
-                
-            document.getElementById('guru-details-list').innerHTML = listHTML;
-            document.getElementById('modal-guru-details').classList.remove('hidden');
-            document.getElementById('modal-guru-details').classList.add('flex');
-        };
-
-        window.editSiswaAdmin = (id) => {
-            const s = state.siswa.find(x=>x.id===id); if(!s) return;
-            
-            const m = document.createElement('div');
-            m.id = 'temp-modal-edit';
-            m.className = "fixed inset-0 bg-black/80 flex items-center justify-center z-[99999999] px-4 py-8 backdrop-blur-sm";
-            m.innerHTML = `
-                <div class="bg-[#111827] p-5 sm:p-8 rounded-3xl w-full max-w-4xl max-h-full overflow-y-auto custom-scroll shadow-2xl relative border border-gray-800">
-                    <button onclick="this.parentElement.parentElement.remove()" class="absolute top-5 right-5 text-gray-500 hover:text-red-500 bg-gray-900 p-2 rounded-full transition-colors"><i class="ph ph-x text-2xl"></i></button>
-                    <h3 class="font-black text-xl sm:text-2xl mb-6 sm:mb-8 text-white tracking-tight">Edit Data Siswa Manual</h3>
-                    <form onsubmit="window.saveEditSiswa(event, '${s.id}')" class="space-y-6 text-sm text-gray-300">
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5 bg-gray-900 p-4 sm:p-6 rounded-2xl border border-gray-800">
-                            <h4 class="md:col-span-2 font-bold text-emerald-400 border-b border-gray-800 pb-3 uppercase tracking-wider text-xs">DATA CALON SISWA</h4>
-                            <div><label class="block text-xs font-bold mb-1 text-amber-400">Nomor Pendaftaran</label><input type="text" id="es_noPendaftaran" value="${s.noPendaftaran||''}" required class="w-full p-3 border border-amber-500/40 rounded-xl bg-[#111827] font-mono font-bold text-amber-400 focus:border-amber-500 outline-none"></div>
-                            <div><label class="block text-xs font-bold mb-1">Nama</label><input type="text" id="es_name" value="${s.name}" required class="w-full p-3 border border-gray-700 rounded-xl bg-[#111827] uppercase focus:border-emerald-500 outline-none"></div>
-                            <div><label class="block text-xs font-bold mb-1">NISN</label><input type="text" id="es_nisn" value="${s.nisn}" required class="w-full p-3 border border-gray-700 rounded-xl bg-[#111827] focus:border-emerald-500 outline-none"></div>
-                            <div><label class="block text-xs font-bold mb-1">Jenis Kelamin</label><select id="es_jk" class="w-full p-3 border border-gray-700 rounded-xl bg-[#111827] focus:border-emerald-500 outline-none"><option value="Laki-laki" ${s.jk==='Laki-laki'?'selected':''}>Laki-laki</option><option value="Perempuan" ${s.jk==='Perempuan'?'selected':''}>Perempuan</option></select></div>
-                            <div><label class="block text-xs font-bold mb-1">NIK</label><input type="text" id="es_nik" value="${s.nik||''}" class="w-full p-3 border border-gray-700 rounded-xl bg-[#111827] focus:border-emerald-500 outline-none"></div>
-                            <div><label class="block text-xs font-bold mb-1">Tempat Lahir</label><input type="text" id="es_tempat" value="${s.tempatLahir||''}" class="w-full p-3 border border-gray-700 rounded-xl bg-[#111827] uppercase focus:border-emerald-500 outline-none"></div>
-                            <div><label class="block text-xs font-bold mb-1">Tanggal Lahir</label><input type="date" id="es_tgl" value="${s.tanggalLahir||''}" required class="w-full p-3 border border-gray-700 rounded-xl bg-[#111827] focus:border-emerald-500 outline-none"></div>
-                            <div><label class="block text-xs font-bold mb-1">Agama</label><input type="text" id="es_agama" value="${s.agama||''}" required class="w-full p-3 border border-gray-700 rounded-xl bg-[#111827] uppercase focus:border-emerald-500 outline-none"></div>
-                        </div>
-                        
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5 bg-gray-900 p-4 sm:p-6 rounded-2xl border border-gray-800">
-                            <h4 class="md:col-span-2 font-bold text-emerald-400 border-b border-gray-800 pb-3 uppercase tracking-wider text-xs">SEKOLAH & JURUSAN</h4>
-                            <div><label class="block text-xs font-bold mb-1">Asal Sekolah</label><input type="text" id="es_asalSekolah" value="${s.asalSekolah||''}" class="w-full p-3 border border-gray-700 rounded-xl bg-[#111827] uppercase focus:border-emerald-500 outline-none"></div>
-                            <div><label class="block text-xs font-bold mb-1">Provinsi Sekolah</label><input type="text" id="es_provSekolah" value="${s.provSekolah||''}" class="w-full p-3 border border-gray-700 rounded-xl bg-[#111827] uppercase focus:border-emerald-500 outline-none"></div>
-                            <div><label class="block text-xs font-bold mb-1">Kabupaten Sekolah</label><input type="text" id="es_kabSekolah" value="${s.kabSekolah||''}" class="w-full p-3 border border-gray-700 rounded-xl bg-[#111827] uppercase focus:border-emerald-500 outline-none"></div>
-                            <div><label class="block text-xs font-bold mb-1">Kecamatan Sekolah</label><input type="text" id="es_kecSekolah" value="${s.kecSekolah||''}" class="w-full p-3 border border-gray-700 rounded-xl bg-[#111827] uppercase focus:border-emerald-500 outline-none"></div>
-                            <div><label class="block text-xs font-bold mb-1">Jurusan 1</label><select id="es_jur1" required class="w-full p-3 border border-gray-700 rounded-xl bg-[#111827] focus:border-emerald-500 outline-none"><option value="">Pilih...</option>${state.jurusan.map(j => `<option value="${j.id}" ${s.jurusan1===j.id?'selected':''}>${j.name}</option>`).join('')}</select></div>
-                            <div><label class="block text-xs font-bold mb-1">Jurusan 2</label><select id="es_jur2" required class="w-full p-3 border border-gray-700 rounded-xl bg-[#111827] focus:border-emerald-500 outline-none"><option value="">Pilih...</option>${state.jurusan.map(j => `<option value="${j.id}" ${s.jurusan2===j.id?'selected':''}>${j.name}</option>`).join('')}</select></div>
-                        </div>
-
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5 bg-gray-900 p-4 sm:p-6 rounded-2xl border border-gray-800">
-                            <h4 class="md:col-span-2 font-bold text-emerald-400 border-b border-gray-800 pb-3 uppercase tracking-wider text-xs">DATA ORANG TUA</h4>
-                            <div class="md:col-span-2"><label class="block text-xs font-bold mb-1">Nama Ibu</label><input type="text" id="es_namaIbu" value="${s.namaIbu||''}" class="w-full p-3 border border-gray-700 rounded-xl bg-[#111827] uppercase focus:border-emerald-500 outline-none"></div>
-                            <div class="md:col-span-2"><label class="block text-xs font-bold mb-1">Alamat (Jalan)</label><input type="text" id="es_alamat" value="${s.alamatOrtu||''}" class="w-full p-3 border border-gray-700 rounded-xl bg-[#111827] uppercase focus:border-emerald-500 outline-none"></div>
-                            <div><label class="block text-xs font-bold mb-1">Desa/Kelurahan</label><input type="text" id="es_desa" value="${s.desaOrtu||''}" class="w-full p-3 border border-gray-700 rounded-xl bg-[#111827] uppercase focus:border-emerald-500 outline-none"></div>
-                            <div><label class="block text-xs font-bold mb-1">Kecamatan</label><input type="text" id="es_kec" value="${s.kecOrtu||''}" class="w-full p-3 border border-gray-700 rounded-xl bg-[#111827] uppercase focus:border-emerald-500 outline-none"></div>
-                            <div><label class="block text-xs font-bold mb-1">Kabupaten</label><input type="text" id="es_kab" value="${s.kabOrtu||''}" class="w-full p-3 border border-gray-700 rounded-xl bg-[#111827] uppercase focus:border-emerald-500 outline-none"></div>
-                            <div><label class="block text-xs font-bold mb-1">Provinsi</label><input type="text" id="es_prov" value="${s.provOrtu||''}" class="w-full p-3 border border-gray-700 rounded-xl bg-[#111827] uppercase focus:border-emerald-500 outline-none"></div>
-                            <div><label class="block text-xs font-bold mb-1">No. HP</label><input type="text" id="es_hp" value="${s.hpOrtu||''}" class="w-full p-3 border border-gray-700 rounded-xl bg-[#111827] focus:border-emerald-500 outline-none"></div>
-                            <div><label class="block text-xs font-bold mb-1 text-blue-400">Guru Referal</label><select id="es_guru" class="w-full p-3 border border-gray-700 rounded-xl bg-[#111827] focus:border-blue-500 outline-none"><option value="">-- Tidak ada --</option>${state.guru.map(g => `<option value="${g.id}" ${s.guruId===g.id?'selected':''}>${g.name}</option>`).join('')}</select></div>
-                        </div>
-
-                        <div class="flex justify-end gap-3 pt-6 border-t border-gray-800 sticky bottom-0 bg-[#111827] pb-4"><button type="button" onclick="this.parentElement.parentElement.parentElement.parentElement.remove()" class="px-6 py-3 bg-gray-800 hover:bg-gray-700 rounded-xl font-bold transition-colors">Batal</button><button type="submit" class="px-6 py-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-bold shadow-lg shadow-emerald-500/20 active:scale-95 transition-all"><i class="ph ph-floppy-disk mr-1"></i> Simpan Perubahan</button></div>
-                    </form>
-                </div>
-            `;
-            document.body.appendChild(m);
-        };
-
-        window.saveEditSiswa = async (e, id) => {
-            e.preventDefault(); const toUpper = (str) => str ? str.replace(/\s+/g, ' ').trim().toUpperCase() : '';
-            const data = { 
-                noPendaftaran: document.getElementById('es_noPendaftaran').value.trim(),
-                name: toUpper(document.getElementById('es_name').value), nisn: document.getElementById('es_nisn').value, jk: document.getElementById('es_jk').value, nik: document.getElementById('es_nik').value, tempatLahir: toUpper(document.getElementById('es_tempat').value), tanggalLahir: document.getElementById('es_tgl').value, agama: document.getElementById('es_agama').value,
-                asalSekolah: toUpper(document.getElementById('es_asalSekolah').value), provSekolah: toUpper(document.getElementById('es_provSekolah').value), kabSekolah: toUpper(document.getElementById('es_kabSekolah').value), kecSekolah: toUpper(document.getElementById('es_kecSekolah').value), jurusan1: document.getElementById('es_jur1').value, jurusan2: document.getElementById('es_jur2').value,
-                namaIbu: toUpper(document.getElementById('es_namaIbu').value), alamatOrtu: toUpper(document.getElementById('es_alamat').value), desaOrtu: toUpper(document.getElementById('es_desa').value), kecOrtu: toUpper(document.getElementById('es_kec').value), kabOrtu: toUpper(document.getElementById('es_kab').value), provOrtu: toUpper(document.getElementById('es_prov').value), hpOrtu: document.getElementById('es_hp').value, guruId: document.getElementById('es_guru').value || null
-            };
-            const s = state.siswa.find(x => x.id === id); if (s) Object.assign(s, data); render();
-            await saveDoc('siswa', data, id);
-            await window.syncCounterWithHighestSiswa();
-            document.getElementById('temp-modal-edit').remove(); showToast('Data lengkap siswa diperbarui');
-        };
-
-        window.saveInfoBoardSettings = async (e) => {
-            e.preventDefault();
-            const isActive = document.getElementById('info_active').checked;
-            const title = document.getElementById('info_title').value.trim();
-            const content = document.getElementById('info_content').value.trim();
-            const newInfoBoard = { isActive, title, content, updatedAt: Date.now() };
-            state.settings.infoBoard = newInfoBoard;
-            await saveDoc('settings', { infoBoard: newInfoBoard }, 'main');
-            showToast('Papan Informasi berhasil diperbarui & dipublikasikan!');
-            render();
-        };
-
-        window.saveGlobalSettings = async (e) => { e.preventDefault(); const wa = document.getElementById('stf_wa_global').value; const newSettings = { ...state.settings, waLinkGlobal: wa }; await saveDoc('settings', newSettings, 'main'); showToast('Link WA Global berhasil disimpan!'); };
-        
-        window.saveStaffAccount = async (e, type) => { 
-            e.preventDefault(); 
-            const u = document.getElementById(`stf_${type}_user`).value.trim(); 
-            const p = document.getElementById(`stf_${type}_pass`).value.trim(); 
-            const newAccounts = { ...state.settings.staffAccounts, [type]: { user: u, pass: p } }; 
-            state.settings.staffAccounts = newAccounts;
-            await saveDoc('settings', { staffAccounts: newAccounts }, 'main'); 
-            const labelMap = { admin_office: 'Administration Office', finance: 'Finance', seragam: 'Seragam' };
-            showToast(`Akun ${labelMap[type] || type} berhasil disimpan`); 
-        };
-
-        window.saveFinanceRow = async (id) => {
-            try {
-                const s = state.siswa.find(x => x.id === id); const c1 = document.getElementById(`c1_${id}`).checked; const c2 = document.getElementById(`c2_${id}`).checked;
-                if (c2 && !c1) { document.getElementById(`c2_${id}`).checked = false; return showToast("Checklist 1 harus dicentang lebih dulu!", "error"); }
-                const data = { checklist1: c1, checklist2: c2 };
-                if (c2 && !s.checklist2) {
-                    const activeGel = state.gelombang.find(g => g.isActive);
-                    if (!activeGel) { document.getElementById(`c2_${id}`).checked = false; return showToast("Gagal! Tidak ada gelombang yang aktif di Admin.", "error"); }
-                    data.gelombangId = activeGel.id; data.gelombangName = activeGel.name; showToast(`Berhasil masuk ke ${activeGel.name}`);
-                } else if (!c2 && s.checklist2) { data.gelombangId = null; data.gelombangName = null; }
-                Object.assign(s, data); render(); await saveDoc('siswa', data, id); showToast("Perubahan Status Disimpan!");
-            } catch(e) { showToast("Gagal menyimpan data", "error"); console.error(e); }
-        };
-
-        window.batalLunas = async (id) => {
-            const s = state.siswa.find(x => x.id === id);
-            const ok = await window.showConfirmModal({
-                title: 'Batalkan Status Lunas?',
-                message: `Status lunas siswa <b>${s ? s.name : ''}</b> akan dibatalkan dan dikembalikan ke daftar Pendaftar (Belum Lunas).`,
-                confirmText: 'Ya, Batalkan',
-                type: 'danger'
-            });
-            if(ok) {
-                try {
-                    if (s) { s.checklist2 = false; s.gelombangId = null; s.gelombangName = null; render(); }
-                    await saveDoc('siswa', { checklist2: false, gelombangId: null, gelombangName: null }, id); showToast("Status lunas dibatalkan");
-                } catch(e) { showToast("Gagal", "error"); }
+                new Chart(ctxGenderJur, {
+                    type: 'bar',
+                    data: {
+                        labels: jurLabelsGender,
+                        datasets: [
+                            { label: 'Laki-laki', data: lakiPerJur, backgroundColor: '#10b981', borderRadius: 6 },
+                            { label: 'Perempuan', data: perempuanPerJur, backgroundColor: '#f43f5e', borderRadius: 6 }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        layout: { padding: { top: 22 } },
+                        plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, color: '#e5e7eb' } } },
+                        scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
+                    }
+                });
             }
         };
 
@@ -3017,28 +2900,376 @@
                 if (img.complete) return resolve();
                 img.onload = resolve;
                 img.onerror = resolve;
-                setTimeout(resolve, 1500);
+                setTimeout(resolve, 2500);
             }));
 
-            const executePrint = () => {
+            Promise.all(waitPromises).then(() => {
                 document.documentElement.classList.add('printing');
                 document.body.classList.add('printing');
-                
+
+                const cleanup = () => {
+                    document.documentElement.classList.remove('printing');
+                    document.body.classList.remove('printing');
+                    document.title = originalTitle;
+                    window.removeEventListener('afterprint', cleanup);
+                };
+                window.addEventListener('afterprint', cleanup);
+
                 setTimeout(() => {
                     window.print();
-                    setTimeout(() => {
-                        document.documentElement.classList.remove('printing');
-                        document.body.classList.remove('printing');
-                        document.title = originalTitle;
-                        buffer.innerHTML = '';
-                    }, 1000);
+                    setTimeout(cleanup, 1500);
                 }, 150);
-            };
+            });
+        };
 
-            if (waitPromises.length > 0) {
-                Promise.all(waitPromises).then(executePrint);
+        // ==========================================
+        // CHARTS & AKSI FINANCE
+        // ==========================================
+        window.initFinanceCharts = () => {
+            const ctxOverall = document.getElementById('chartFinOverall');
+            const ctxJur = document.getElementById('chartFinJurusan');
+            if (!ctxOverall || !ctxJur) return;
+
+            [ctxOverall, ctxJur].forEach(destroyExistingChart);
+
+            Chart.defaults.color = '#9ca3af';
+            Chart.defaults.borderColor = 'rgba(255,255,255,0.05)';
+
+            const belumC1 = state.siswa.filter(s => !s.checklist1 && !s.checklist2).length;
+            const hanyaC1 = state.siswa.filter(s => s.checklist1 && !s.checklist2).length;
+            const lunasC2 = state.siswa.filter(s => s.checklist2).length;
+
+            new Chart(ctxOverall, {
+                type: 'doughnut',
+                data: {
+                    labels: [`Belum Verifikasi (${belumC1})`, `Daftar Ulang C1 (${hanyaC1})`, `Lunas C2 (${lunasC2})`],
+                    datasets: [{
+                        data: [belumC1, hanyaC1, lunasC2],
+                        backgroundColor: ['#f59e0b', '#3b82f6', '#10b981'],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '68%',
+                    plugins: {
+                        doughnutCenterText: { label: 'TOTAL SISWA' },
+                        legend: { position: 'bottom', labels: { boxWidth: 12, color: '#e5e7eb' } }
+                    }
+                }
+            });
+
+            const jurLabels = state.jurusan.map(j => window.getAcronym(j.name));
+            const lunasPerJur = state.jurusan.map(j => state.siswa.filter(s => s.jurusan1 === j.id && s.checklist2).length);
+
+            new Chart(ctxJur, {
+                type: 'bar',
+                data: {
+                    labels: jurLabels,
+                    datasets: [{
+                        label: 'Siswa Lunas',
+                        data: lunasPerJur,
+                        backgroundColor: '#10b981',
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    layout: { padding: { top: 20 } },
+                    plugins: { legend: { display: false } },
+                    scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
+                }
+            });
+        };
+
+        window.saveFinanceRow = async (id) => {
+            const s = state.siswa.find(x => x.id === id);
+            if (!s) return;
+            const c1El = document.getElementById(`c1_${id}`);
+            const c2El = document.getElementById(`c2_${id}`);
+            const c1 = c1El ? c1El.checked : false;
+            const c2 = c2El ? c2El.checked : false;
+
+            try {
+                const data = { checklist1: c1 || c2, checklist2: c2 };
+                if (c2 && !s.checklist2) {
+                    const activeGel = state.gelombang.find(g => g.isActive);
+                    if (!activeGel) {
+                        if (c2El) c2El.checked = false;
+                        return showToast("Gagal! Tidak ada gelombang yang aktif di Admin.", "error");
+                    }
+                    data.gelombangId = activeGel.id;
+                    data.gelombangName = activeGel.name;
+                    data.waktuLunas = Date.now();
+                    showToast(`Berhasil masuk ke ${activeGel.name}`);
+                } else if (!c2 && s.checklist2) {
+                    data.gelombangId = null;
+                    data.gelombangName = null;
+                    data.waktuLunas = null;
+                }
+                Object.assign(s, data);
+                render();
+                await saveDoc('siswa', data, id);
+                showToast("Perubahan Status Disimpan!");
+            } catch (e) {
+                showToast("Gagal menyimpan data", "error");
+                console.error(e);
+            }
+        };
+
+        // ==========================================
+        // AKSI ADMIN (GELOMBANG, JURUSAN, GURU, SISWA, PENGATURAN)
+        // ==========================================
+        window.editGelombang = (id) => {
+            const modal = document.getElementById('modal-gel');
+            if (!modal) return;
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            if (id) {
+                const g = state.gelombang.find(x => x.id === id);
+                if (g) {
+                    document.getElementById('gelId').value = g.id;
+                    document.getElementById('gelName').value = g.name || '';
+                    document.getElementById('gelStartId').value = g.startId || '';
+                    document.getElementById('gelWa').value = g.waLink || '';
+                    document.getElementById('gelActive').checked = !!g.isActive;
+                }
             } else {
-                executePrint();
+                document.getElementById('formGel').reset();
+                document.getElementById('gelId').value = '';
+            }
+        };
+
+        window.saveGelombang = async (e) => {
+            e.preventDefault();
+            const id = document.getElementById('gelId').value;
+            const name = document.getElementById('gelName').value.trim();
+            const startId = parseInt(document.getElementById('gelStartId').value) || 1000;
+            const waLink = document.getElementById('gelWa').value.trim();
+            const isActive = document.getElementById('gelActive').checked;
+
+            try {
+                if (isActive) {
+                    for (const g of state.gelombang) {
+                        if (g.id !== id && g.isActive) {
+                            await saveDoc('gelombang', { isActive: false }, g.id);
+                        }
+                    }
+                }
+                const payload = { name, startId, waLink, isActive };
+                await saveDoc('gelombang', payload, id || null);
+                closeModal('modal-gel');
+                showToast("Gelombang berhasil disimpan!");
+            } catch (err) {
+                showToast("Gagal menyimpan gelombang: " + err.message, "error");
+            }
+        };
+
+        window.saveJurusan = async (e) => {
+            e.preventDefault();
+            const id = document.getElementById('jurEditId').value;
+            const name = document.getElementById('newJurName').value.trim().toUpperCase();
+            if (!name) return;
+            try {
+                await saveDoc('jurusan', { name }, id || null);
+                document.getElementById('jurEditId').value = '';
+                document.getElementById('newJurName').value = '';
+                showToast(id ? "Jurusan diperbarui!" : "Jurusan ditambahkan!");
+            } catch (err) {
+                showToast("Gagal menyimpan jurusan: " + err.message, "error");
+            }
+        };
+
+        window.saveGuru = async (e) => {
+            e.preventDefault();
+            const name = document.getElementById('newGuruName').value.trim().toUpperCase();
+            if (!name) return;
+            try {
+                await saveDoc('guru', { name });
+                document.getElementById('newGuruName').value = '';
+                showToast("Data guru ditambahkan!");
+            } catch (err) {
+                showToast("Gagal menyimpan data guru: " + err.message, "error");
+            }
+        };
+
+        window.viewGuruDetails = (guruId) => {
+            const g = state.guru.find(x => x.id === guruId);
+            if (!g) return;
+            const list = state.siswa.filter(s => s.guruId === guruId).sort((a, b) => (parseInt(a.noPendaftaran) || 0) - (parseInt(b.noPendaftaran) || 0));
+            const modal = document.getElementById('modal-guru-details');
+            const nameEl = document.getElementById('guru-details-name');
+            const listEl = document.getElementById('guru-details-list');
+            if (!modal || !nameEl || !listEl) return;
+
+            nameEl.innerText = `${g.name} — Total ${list.length} Siswa Referal`;
+            listEl.innerHTML = list.length === 0
+                ? `<div class="text-center py-8 text-gray-500 text-sm">Belum ada siswa yang menggunakan referal guru ini.</div>`
+                : list.map((s, idx) => {
+                    const jur = state.jurusan.find(j => j.id === s.jurusan1)?.name || '-';
+                    return `
+                        <div class="bg-gray-900 border border-gray-800 p-3.5 rounded-2xl flex items-center justify-between gap-3">
+                            <div class="min-w-0">
+                                <div class="font-bold text-white text-sm truncate">${idx + 1}. ${s.name} <span class="text-xs font-mono text-gray-400">(#${s.noPendaftaran})</span></div>
+                                <div class="text-xs text-gray-400 mt-0.5 truncate">${s.asalSekolah || '-'} • ${window.getAcronym(jur)}</div>
+                            </div>
+                            <span class="shrink-0 text-[10px] font-bold uppercase px-2.5 py-1 rounded-lg ${s.checklist2 ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/15 text-amber-400 border border-amber-500/30'}">${s.checklist2 ? 'Lunas' : 'Pendaftar'}</span>
+                        </div>
+                    `;
+                }).join('');
+
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        };
+
+        window.editSiswaAdmin = (id) => {
+            const s = state.siswa.find(x => x.id === id);
+            if (!s) return showToast("Data siswa tidak ditemukan", "error");
+
+            const existing = document.getElementById('modal-edit-siswa-admin');
+            if (existing) existing.remove();
+
+            const jurOptions = state.jurusan.map(j => `<option value="${j.id}" ${s.jurusan1 === j.id ? 'selected' : ''}>${j.name}</option>`).join('');
+            const jur2Options = state.jurusan.map(j => `<option value="${j.id}" ${s.jurusan2 === j.id ? 'selected' : ''}>${j.name}</option>`).join('');
+            const guruOptions = `<option value="">-- Tanpa Guru Referal --</option>` + state.guru.map(g => `<option value="${g.id}" ${s.guruId === g.id ? 'selected' : ''}>${g.name}</option>`).join('');
+
+            const overlay = document.createElement('div');
+            overlay.id = 'modal-edit-siswa-admin';
+            overlay.className = 'fixed inset-0 bg-black/80 flex items-center justify-center z-[99999999] px-4 backdrop-blur-sm';
+            overlay.innerHTML = `
+                <div class="bg-[#111827] border border-gray-800 p-5 sm:p-7 rounded-3xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl relative text-gray-200">
+                    <button type="button" onclick="document.getElementById('modal-edit-siswa-admin').remove()" class="absolute top-5 right-5 text-gray-400 hover:text-red-400 bg-gray-900 p-2 rounded-full transition-colors"><i class="ph ph-x text-xl"></i></button>
+                    <h3 class="font-black text-xl sm:text-2xl text-white mb-1">Edit Data Siswa</h3>
+                    <p class="text-xs text-emerald-400 font-mono mb-4">No Pendaftaran: ${s.noPendaftaran}</p>
+                    <form onsubmit="window.saveEditSiswaAdmin(event, '${s.id}')" class="overflow-y-auto custom-scroll pr-1 space-y-4 text-xs sm:text-sm">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div><label class="block text-xs font-bold text-gray-400 mb-1">No Pendaftaran</label><input type="text" id="ed_noPendaftaran" value="${s.noPendaftaran || ''}" required class="w-full p-2.5 bg-gray-900 border border-gray-700 rounded-xl text-white font-mono"></div>
+                            <div><label class="block text-xs font-bold text-gray-400 mb-1">Nama Lengkap</label><input type="text" id="ed_name" value="${s.name || ''}" required class="w-full p-2.5 bg-gray-900 border border-gray-700 rounded-xl text-white uppercase"></div>
+                            <div><label class="block text-xs font-bold text-gray-400 mb-1">NISN (10 Digit)</label><input type="text" id="ed_nisn" value="${s.nisn || ''}" required class="w-full p-2.5 bg-gray-900 border border-gray-700 rounded-xl text-white"></div>
+                            <div><label class="block text-xs font-bold text-gray-400 mb-1">NIK (16 Digit)</label><input type="text" id="ed_nik" value="${s.nik || ''}" class="w-full p-2.5 bg-gray-900 border border-gray-700 rounded-xl text-white"></div>
+                            <div><label class="block text-xs font-bold text-gray-400 mb-1">Jenis Kelamin</label>
+                                <select id="ed_jk" class="w-full p-2.5 bg-gray-900 border border-gray-700 rounded-xl text-white">
+                                    <option value="Laki-laki" ${s.jk === 'Laki-laki' ? 'selected' : ''}>Laki-laki</option>
+                                    <option value="Perempuan" ${s.jk === 'Perempuan' ? 'selected' : ''}>Perempuan</option>
+                                </select>
+                            </div>
+                            <div><label class="block text-xs font-bold text-gray-400 mb-1">Agama</label><input type="text" id="ed_agama" value="${s.agama || ''}" class="w-full p-2.5 bg-gray-900 border border-gray-700 rounded-xl text-white uppercase"></div>
+                            <div><label class="block text-xs font-bold text-gray-400 mb-1">Tempat Lahir</label><input type="text" id="ed_tempatLahir" value="${s.tempatLahir || ''}" class="w-full p-2.5 bg-gray-900 border border-gray-700 rounded-xl text-white uppercase"></div>
+                            <div><label class="block text-xs font-bold text-gray-400 mb-1">Tanggal Lahir</label><input type="date" id="ed_tanggalLahir" value="${s.tanggalLahir || ''}" class="w-full p-2.5 bg-gray-900 border border-gray-700 rounded-xl text-white"></div>
+                            <div><label class="block text-xs font-bold text-gray-400 mb-1">Asal Sekolah</label><input type="text" id="ed_asalSekolah" value="${s.asalSekolah || ''}" class="w-full p-2.5 bg-gray-900 border border-gray-700 rounded-xl text-white uppercase"></div>
+                            <div><label class="block text-xs font-bold text-gray-400 mb-1">Kecamatan Sekolah</label><input type="text" id="ed_kecSekolah" value="${s.kecSekolah || ''}" class="w-full p-2.5 bg-gray-900 border border-gray-700 rounded-xl text-white uppercase"></div>
+                            <div><label class="block text-xs font-bold text-gray-400 mb-1">Nama Ibu Kandung</label><input type="text" id="ed_namaIbu" value="${s.namaIbu || ''}" required class="w-full p-2.5 bg-gray-900 border border-gray-700 rounded-xl text-white uppercase"></div>
+                            <div><label class="block text-xs font-bold text-gray-400 mb-1">No. HP Orang Tua</label><input type="text" id="ed_hpOrtu" value="${s.hpOrtu || ''}" class="w-full p-2.5 bg-gray-900 border border-gray-700 rounded-xl text-white"></div>
+                            <div class="sm:col-span-2"><label class="block text-xs font-bold text-gray-400 mb-1">Alamat Orang Tua</label><input type="text" id="ed_alamatOrtu" value="${s.alamatOrtu || ''}" class="w-full p-2.5 bg-gray-900 border border-gray-700 rounded-xl text-white uppercase"></div>
+                            <div><label class="block text-xs font-bold text-gray-400 mb-1">Desa / Kelurahan Ortu</label><input type="text" id="ed_desaOrtu" value="${s.desaOrtu || ''}" class="w-full p-2.5 bg-gray-900 border border-gray-700 rounded-xl text-white uppercase"></div>
+                            <div><label class="block text-xs font-bold text-gray-400 mb-1">Kecamatan Ortu</label><input type="text" id="ed_kecOrtu" value="${s.kecOrtu || ''}" class="w-full p-2.5 bg-gray-900 border border-gray-700 rounded-xl text-white uppercase"></div>
+                            <div><label class="block text-xs font-bold text-gray-400 mb-1">Pilihan Jurusan 1</label><select id="ed_jurusan1" class="w-full p-2.5 bg-gray-900 border border-gray-700 rounded-xl text-white">${jurOptions}</select></div>
+                            <div><label class="block text-xs font-bold text-gray-400 mb-1">Pilihan Jurusan 2</label><select id="ed_jurusan2" class="w-full p-2.5 bg-gray-900 border border-gray-700 rounded-xl text-white">${jur2Options}</select></div>
+                            <div class="sm:col-span-2"><label class="block text-xs font-bold text-emerald-400 mb-1">Guru Referal</label><select id="ed_guruId" class="w-full p-2.5 bg-gray-900 border border-gray-700 rounded-xl text-white">${guruOptions}</select></div>
+                        </div>
+                        <div class="flex gap-3 pt-4 border-t border-gray-800">
+                            <button type="button" onclick="document.getElementById('modal-edit-siswa-admin').remove()" class="flex-1 py-3 bg-gray-800 hover:bg-gray-700 text-white rounded-xl font-bold">Batal</button>
+                            <button type="submit" class="flex-1 py-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-bold shadow-lg shadow-emerald-500/20">Simpan Perubahan</button>
+                        </div>
+                    </form>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+        };
+
+        window.saveEditSiswaAdmin = async (e, id) => {
+            e.preventDefault();
+            const toUpper = (v) => v ? v.replace(/\s+/g, ' ').trim().toUpperCase() : '';
+            const payload = {
+                noPendaftaran: document.getElementById('ed_noPendaftaran').value.trim(),
+                name: toUpper(document.getElementById('ed_name').value),
+                nisn: document.getElementById('ed_nisn').value.trim(),
+                nik: document.getElementById('ed_nik').value.trim(),
+                jk: document.getElementById('ed_jk').value,
+                agama: toUpper(document.getElementById('ed_agama').value),
+                tempatLahir: toUpper(document.getElementById('ed_tempatLahir').value),
+                tanggalLahir: document.getElementById('ed_tanggalLahir').value,
+                asalSekolah: toUpper(document.getElementById('ed_asalSekolah').value),
+                kecSekolah: toUpper(document.getElementById('ed_kecSekolah').value),
+                namaIbu: toUpper(document.getElementById('ed_namaIbu').value),
+                hpOrtu: document.getElementById('ed_hpOrtu').value.trim(),
+                alamatOrtu: toUpper(document.getElementById('ed_alamatOrtu').value),
+                desaOrtu: toUpper(document.getElementById('ed_desaOrtu').value),
+                kecOrtu: toUpper(document.getElementById('ed_kecOrtu').value),
+                jurusan1: document.getElementById('ed_jurusan1').value,
+                jurusan2: document.getElementById('ed_jurusan2').value,
+                guruId: document.getElementById('ed_guruId').value || null
+            };
+            try {
+                await saveDoc('siswa', payload, id);
+                const modal = document.getElementById('modal-edit-siswa-admin');
+                if (modal) modal.remove();
+                showToast("Data siswa berhasil diperbarui!");
+            } catch (err) {
+                showToast("Gagal memperbarui data: " + err.message, "error");
+            }
+        };
+
+        window.saveInfoBoardSettings = async (e) => {
+            e.preventDefault();
+            const isActive = document.getElementById('info_active').checked;
+            const title = document.getElementById('info_title').value.trim();
+            const content = document.getElementById('info_content').value.trim();
+            const infoBoard = { isActive, title, content, updatedAt: Date.now() };
+            try {
+                state.settings.infoBoard = infoBoard;
+                await saveDoc('settings', { infoBoard }, 'main');
+                showToast("Papan Informasi berhasil dipublikasikan!");
+            } catch (err) {
+                showToast("Gagal menyimpan Papan Informasi: " + err.message, "error");
+            }
+        };
+
+        window.saveGlobalSettings = async (e) => {
+            e.preventDefault();
+            const waLinkGlobal = document.getElementById('stf_wa_global').value.trim();
+            try {
+                state.settings.waLinkGlobal = waLinkGlobal;
+                await saveDoc('settings', { waLinkGlobal }, 'main');
+                showToast("Link Grup WhatsApp berhasil disimpan!");
+            } catch (err) {
+                showToast("Gagal menyimpan pengaturan: " + err.message, "error");
+            }
+        };
+
+        window.saveStaffAccount = async (e, role) => {
+            e.preventDefault();
+            const user = document.getElementById(`stf_${role}_user`).value.trim();
+            const pass = document.getElementById(`stf_${role}_pass`).value.trim();
+            if (!user || !pass) return showToast("Username dan password wajib diisi!", "error");
+            try {
+                const updatedStaff = {
+                    ...state.settings.staffAccounts,
+                    [role]: { user, pass }
+                };
+                state.settings.staffAccounts = updatedStaff;
+                await saveDoc('settings', { staffAccounts: updatedStaff }, 'main');
+                showToast(`Akun ${role.replace('_', ' ').toUpperCase()} berhasil diperbarui!`);
+            } catch (err) {
+                showToast("Gagal menyimpan akun staf: " + err.message, "error");
+            }
+        };
+
+        window.batalLunas = async (id) => {
+            const s = state.siswa.find(x => x.id === id);
+            const ok = await window.showConfirmModal({
+                title: 'Batalkan Status Lunas?',
+                message: `Status lunas siswa <b>${s ? s.name : ''}</b> akan dibatalkan dan dikembalikan ke daftar Pendaftar (Belum Lunas).`,
+                confirmText: 'Ya, Batalkan',
+                type: 'danger'
+            });
+            if(ok) {
+                try {
+                    if (s) { s.checklist2 = false; s.gelombangId = null; s.gelombangName = null; s.waktuLunas = null; render(); }
+                    await saveDoc('siswa', { checklist2: false, gelombangId: null, gelombangName: null, waktuLunas: null }, id); showToast("Status lunas dibatalkan");
+                } catch(e) { showToast("Gagal", "error"); }
             }
         };
 
