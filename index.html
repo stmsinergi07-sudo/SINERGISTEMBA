@@ -682,7 +682,8 @@
                     if (colName === 'siswa' && (obj.No_Pendaftaran !== undefined || obj.noPendaftaran !== undefined)) {
                         const cleanVal = (v) => (!v || v === '-') ? '' : String(v).replace(/\t/g, '').trim();
                         const noDaftar = cleanVal(obj.No_Pendaftaran || obj.noPendaftaran);
-                        if (!noDaftar) continue;
+                        const cleanNameVal = cleanVal(obj.Nama || obj.name).toUpperCase();
+                        if (!noDaftar || !cleanNameVal) continue;
 
                         const numNo = parseInt(noDaftar);
                         if (!isNaN(numNo) && numNo > maxNoPendaftaran) maxNoPendaftaran = numNo;
@@ -1216,8 +1217,59 @@
         window.handleRegisterBaru = async (e) => {
             e.preventDefault();
             const formElement = e.target; const btnSubmit = document.getElementById('btnSubmitFormBaru');
-            const nisn = document.getElementById('spmbNisn').value.trim(); if (nisn.length !== 10) return showToast("NISN harus 10 digit!", "error");
-            const jur1 = document.getElementById('spmbJurusan1').value; const jur2 = document.getElementById('spmbJurusan2').value;
+            const toUpper = (str) => str ? str.replace(/\s+/g, ' ').trim().toUpperCase() : '';
+            const cleanDigits = (str) => str ? String(str).replace(/\D/g, '') : '';
+
+            // Validasi ketat JavaScript (mencegah input kosong / hanya berisi spasi)
+            const requiredFields = [
+                { id: 'spmbAsalSekolah', label: 'Asal Sekolah' },
+                { id: 'spmbProvSekolah', label: 'Provinsi Sekolah' },
+                { id: 'spmbKabSekolah', label: 'Kabupaten Sekolah' },
+                { id: 'spmbKecSekolah', label: 'Kecamatan Sekolah' },
+                { id: 'spmbName', label: 'Nama Peserta' },
+                { id: 'spmbNisn', label: 'NISN' },
+                { id: 'spmbJk', label: 'Jenis Kelamin' },
+                { id: 'spmbNik', label: 'NIK' },
+                { id: 'spmbTempatLahir', label: 'Tempat Lahir' },
+                { id: 'spmbTanggalLahir', label: 'Tanggal Lahir' },
+                { id: 'spmbAgama', label: 'Agama' },
+                { id: 'spmbNamaIbu', label: 'Nama Ibu Kandung' },
+                { id: 'spmbAlamatOrtu', label: 'Alamat Orang Tua' },
+                { id: 'spmbDesaOrtu', label: 'Desa/Kelurahan' },
+                { id: 'spmbKecOrtu', label: 'Kecamatan Orang Tua' },
+                { id: 'spmbKabOrtu', label: 'Kabupaten Orang Tua' },
+                { id: 'spmbProvOrtu', label: 'Provinsi Orang Tua' },
+                { id: 'spmbHpOrtu', label: 'No. Telepon (HP)' },
+                { id: 'spmbJurusan1', label: 'Pilihan Jurusan 1' },
+                { id: 'spmbJurusan2', label: 'Pilihan Jurusan 2' }
+            ];
+
+            for (const field of requiredFields) {
+                const el = document.getElementById(field.id);
+                const val = el ? el.value.trim() : '';
+                if (!val) {
+                    if (el) el.focus();
+                    return showToast(`Kolom "${field.label}" wajib diisi dan tidak boleh kosong!`, "error");
+                }
+            }
+
+            const nisn = cleanDigits(document.getElementById('spmbNisn').value);
+            if (nisn.length !== 10) {
+                document.getElementById('spmbNisn')?.focus();
+                return showToast("NISN harus 10 digit angka!", "error");
+            }
+            const nik = cleanDigits(document.getElementById('spmbNik').value);
+            if (nik.length !== 16) {
+                document.getElementById('spmbNik')?.focus();
+                return showToast("NIK harus 16 digit angka!", "error");
+            }
+            const jk = document.getElementById('spmbJk').value.trim();
+            if (jk !== 'Laki-laki' && jk !== 'Perempuan') {
+                document.getElementById('spmbJk')?.focus();
+                return showToast("Jenis Kelamin wajib dipilih!", "error");
+            }
+            const jur1 = document.getElementById('spmbJurusan1').value.trim();
+            const jur2 = document.getElementById('spmbJurusan2').value.trim();
             if (!jur1 || !jur2) return showToast("Pilihan Jurusan 1 dan 2 wajib diisi!", "error");
             if (jur1 === jur2) return showToast("Pilihan Jurusan tidak boleh sama!", "error");
 
@@ -1246,13 +1298,11 @@
                     }
                 }
 
-                const toUpper = (str) => str ? str.replace(/\s+/g, ' ').trim().toUpperCase() : '';
-
                 const baseSiswa = {
                     gelombangId: null, gelombangName: null, 
                     asalSekolah: toUpper(document.getElementById('spmbAsalSekolah').value), provSekolah: toUpper(document.getElementById('spmbProvSekolah').value), kabSekolah: toUpper(document.getElementById('spmbKabSekolah').value), kecSekolah: toUpper(document.getElementById('spmbKecSekolah').value),
-                    name: toUpper(document.getElementById('spmbName').value), nisn: nisn, jk: document.getElementById('spmbJk').value, nik: document.getElementById('spmbNik').value, tempatLahir: toUpper(document.getElementById('spmbTempatLahir').value), tanggalLahir: document.getElementById('spmbTanggalLahir').value, agama: document.getElementById('spmbAgama').value,
-                    namaIbu: toUpper(document.getElementById('spmbNamaIbu').value), alamatOrtu: toUpper(document.getElementById('spmbAlamatOrtu').value), desaOrtu: toUpper(document.getElementById('spmbDesaOrtu').value), kecOrtu: toUpper(document.getElementById('spmbKecOrtu').value), kabOrtu: toUpper(document.getElementById('spmbKabOrtu').value), provOrtu: toUpper(document.getElementById('spmbProvOrtu').value), hpOrtu: document.getElementById('spmbHpOrtu').value,
+                    name: toUpper(document.getElementById('spmbName').value), nisn: nisn, jk: jk, nik: nik, tempatLahir: toUpper(document.getElementById('spmbTempatLahir').value), tanggalLahir: document.getElementById('spmbTanggalLahir').value, agama: document.getElementById('spmbAgama').value,
+                    namaIbu: toUpper(document.getElementById('spmbNamaIbu').value), alamatOrtu: toUpper(document.getElementById('spmbAlamatOrtu').value), desaOrtu: toUpper(document.getElementById('spmbDesaOrtu').value), kecOrtu: toUpper(document.getElementById('spmbKecOrtu').value), kabOrtu: toUpper(document.getElementById('spmbKabOrtu').value), provOrtu: toUpper(document.getElementById('spmbProvOrtu').value), hpOrtu: cleanDigits(document.getElementById('spmbHpOrtu').value),
                     jurusan1: jur1, jurusan2: jur2, guruId: null, checklist1: false, checklist2: false, isDeleted: false,
                     seragam: { putihAbu: false, almamater: false, pramuka: false, olahraga: false, praktik: false, topi: false, sabuk: false, bet: false },
                     seragamSize: '',
@@ -3230,10 +3280,17 @@
         window.saveEditSiswaAdmin = async (e, id) => {
             e.preventDefault();
             const toUpper = (v) => v ? v.replace(/\s+/g, ' ').trim().toUpperCase() : '';
+            const cleanNo = document.getElementById('ed_noPendaftaran').value.trim();
+            const cleanName = toUpper(document.getElementById('ed_name').value);
+            const cleanNisn = document.getElementById('ed_nisn').value.trim();
+            const cleanIbu = toUpper(document.getElementById('ed_namaIbu').value);
+            if (!cleanNo || !cleanName || !cleanNisn || !cleanIbu) {
+                return showToast("No Pendaftaran, Nama, NISN, dan Nama Ibu tidak boleh kosong!", "error");
+            }
             const payload = {
-                noPendaftaran: document.getElementById('ed_noPendaftaran').value.trim(),
-                name: toUpper(document.getElementById('ed_name').value),
-                nisn: document.getElementById('ed_nisn').value.trim(),
+                noPendaftaran: cleanNo,
+                name: cleanName,
+                nisn: cleanNisn,
                 nik: document.getElementById('ed_nik').value.trim(),
                 jk: document.getElementById('ed_jk').value,
                 agama: toUpper(document.getElementById('ed_agama').value),
