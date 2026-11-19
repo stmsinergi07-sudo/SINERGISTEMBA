@@ -1413,6 +1413,7 @@
 
         window.logout = async () => { 
             window.currentTab = null;
+            window.isStaffSectionUnlocked = false;
             window.saveSession(null, null); 
             if (!IS_PREVIEW && auth) {
                 try { await signOut(auth); await signInAnonymously(auth); } catch(e){}
@@ -1507,7 +1508,11 @@
                 </div>
             `;
         }
-        window.setTab = (tab) => { window.currentTab = tab; render(); };
+        window.setTab = (tab) => { 
+            if (tab !== 'staff') window.isStaffSectionUnlocked = false;
+            window.currentTab = tab; 
+            render(); 
+        };
 
         // ==========================================
         // UI COMPONENTS (ADMIN, ADMIN OFFICE, FINANCE, SERAGAM)
@@ -2000,6 +2005,7 @@
                 const fa = state.settings.staffAccounts.finance || { user: 'finance', pass: '2027' }; 
                 const sa = state.settings.staffAccounts.seragam || { user: 'seragam', pass: '2027' };
                 const ao = state.settings.staffAccounts.admin_office || { user: 'office', pass: '2027' };
+                const isUnlocked = !!window.isStaffSectionUnlocked;
                 return `
                     <div class="mb-6 sm:mb-8"><h2 class="text-2xl sm:text-3xl font-black text-white tracking-tight">Pengaturan Sistem & Akun</h2><p class="text-gray-400 mt-1 text-xs sm:text-sm">Kelola keamanan dan integrasi fitur.</p></div>
                     
@@ -2026,27 +2032,69 @@
                         </div>
                     </div>
 
-                    <h3 class="font-bold text-gray-300 mb-4 tracking-wide text-xs sm:text-sm uppercase">Atur Akun Staf Divisi</h3>
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
-                        <form onsubmit="window.saveStaffAccount(event, 'admin_office')" class="${panelCard} space-y-4">
-                            <h3 class="font-bold text-lg sm:text-xl text-white mb-2 flex items-center gap-2"><div class="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center"><i class="ph ph-desktop"></i></div> Admin Office</h3>
-                            <div><label class="text-xs font-bold text-gray-400">Username</label><input type="text" id="stf_admin_office_user" value="${ao.user}" required class="w-full p-3 bg-gray-900 border border-gray-700 rounded-xl text-white text-sm mt-1 focus:border-emerald-500 outline-none"></div>
-                            <div><label class="text-xs font-bold text-gray-400">Password</label><input type="text" id="stf_admin_office_pass" value="${ao.pass}" required class="w-full p-3 bg-gray-900 border border-gray-700 rounded-xl text-white text-sm mt-1 focus:border-emerald-500 outline-none"></div>
-                            <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl text-sm transition-colors mt-2">Simpan Perubahan</button>
-                        </form>
-                        <form onsubmit="window.saveStaffAccount(event, 'finance')" class="${panelCard} space-y-4">
-                            <h3 class="font-bold text-lg sm:text-xl text-white mb-2 flex items-center gap-2"><div class="w-8 h-8 rounded-lg bg-blue-500/20 text-blue-400 flex items-center justify-center"><i class="ph ph-wallet"></i></div> Akun Finance</h3>
-                            <div><label class="text-xs font-bold text-gray-400">Username</label><input type="text" id="stf_finance_user" value="${fa.user}" required class="w-full p-3 bg-gray-900 border border-gray-700 rounded-xl text-white text-sm mt-1 focus:border-blue-500 outline-none"></div>
-                            <div><label class="text-xs font-bold text-gray-400">Password</label><input type="text" id="stf_finance_pass" value="${fa.pass}" required class="w-full p-3 bg-gray-900 border border-gray-700 rounded-xl text-white text-sm mt-1 focus:border-blue-500 outline-none"></div>
-                            <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl text-sm transition-colors mt-2">Simpan Perubahan</button>
-                        </form>
-                        <form onsubmit="window.saveStaffAccount(event, 'seragam')" class="${panelCard} space-y-4">
-                            <h3 class="font-bold text-lg sm:text-xl text-white mb-2 flex items-center gap-2"><div class="w-8 h-8 rounded-lg bg-purple-500/20 text-purple-400 flex items-center justify-center"><i class="ph ph-t-shirt"></i></div> Akun Seragam</h3>
-                            <div><label class="text-xs font-bold text-gray-400">Username</label><input type="text" id="stf_seragam_user" value="${sa.user}" required class="w-full p-3 bg-gray-900 border border-gray-700 rounded-xl text-white text-sm mt-1 focus:border-purple-500 outline-none"></div>
-                            <div><label class="text-xs font-bold text-gray-400">Password</label><input type="text" id="stf_seragam_pass" value="${sa.pass}" required class="w-full p-3 bg-gray-900 border border-gray-700 rounded-xl text-white text-sm mt-1 focus:border-purple-500 outline-none"></div>
-                            <button type="submit" class="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 rounded-xl text-sm transition-colors mt-2">Simpan Perubahan</button>
-                        </form>
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+                        <h3 class="font-bold text-gray-300 tracking-wide text-xs sm:text-sm uppercase flex items-center gap-2">
+                            <i class="ph-fill ${isUnlocked ? 'ph-lock-open text-emerald-400' : 'ph-lock text-amber-400'} text-base"></i> Atur Akun Staf Divisi
+                        </h3>
+                        ${isUnlocked ? `
+                            <button type="button" onclick="window.lockStaffSection()" class="w-fit text-xs font-bold text-amber-400 bg-amber-500/10 hover:bg-amber-500 hover:text-gray-950 border border-amber-500/30 px-3.5 py-1.5 rounded-xl transition-colors flex items-center gap-1.5">
+                                <i class="ph-bold ph-lock"></i> Kunci Kembali
+                            </button>
+                        ` : ''}
                     </div>
+
+                    ${!isUnlocked ? `
+                        <div class="${panelCard} border-amber-500/30 max-w-md mx-auto my-2">
+                            <div class="flex items-center gap-3.5 mb-5 pb-4 border-b border-gray-800">
+                                <div class="w-12 h-12 rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-400 flex items-center justify-center shrink-0">
+                                    <i class="ph-fill ph-shield-check text-2xl"></i>
+                                </div>
+                                <div>
+                                    <h4 class="font-black text-base text-white">Verifikasi Keamanan Diperlukan</h4>
+                                    <p class="text-xs text-gray-400 mt-0.5">Masukkan Username & Password otoritas untuk mengakses pengaturan akun staf divisi.</p>
+                                </div>
+                            </div>
+                            <form onsubmit="window.unlockStaffSection(event)" autocomplete="off" class="space-y-4">
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-400 mb-1.5">Username Otoritas</label>
+                                    <input type="text" id="staff_gate_user" autocomplete="off" required placeholder="Masukkan username..." class="w-full p-3 bg-gray-900 border border-gray-700 rounded-xl text-white text-sm focus:border-amber-500 outline-none transition-colors">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-400 mb-1.5">Password Otoritas</label>
+                                    <div class="relative">
+                                        <input type="password" id="staff_gate_pass" autocomplete="new-password" required placeholder="Masukkan password..." class="w-full p-3 bg-gray-900 border border-gray-700 rounded-xl text-white text-sm focus:border-amber-500 outline-none transition-colors pr-10">
+                                        <button type="button" onclick="window.toggleStaffGatePassword()" class="absolute right-3 top-3 text-gray-400 hover:text-gray-200">
+                                            <i class="ph ph-eye text-lg" id="staffGateEyeIcon"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                <button type="submit" class="w-full bg-amber-500 hover:bg-amber-600 text-gray-950 font-black py-3.5 rounded-xl text-sm shadow-lg shadow-amber-500/20 transition-all active:scale-95 flex items-center justify-center gap-2">
+                                    <i class="ph-bold ph-lock-open text-lg"></i> Buka Pengaturan Akun Staf
+                                </button>
+                            </form>
+                        </div>
+                    ` : `
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+                            <form onsubmit="window.saveStaffAccount(event, 'admin_office')" class="${panelCard} space-y-4">
+                                <h3 class="font-bold text-lg sm:text-xl text-white mb-2 flex items-center gap-2"><div class="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center"><i class="ph ph-desktop"></i></div> Admin Office</h3>
+                                <div><label class="text-xs font-bold text-gray-400">Username</label><input type="text" id="stf_admin_office_user" value="${ao.user}" required class="w-full p-3 bg-gray-900 border border-gray-700 rounded-xl text-white text-sm mt-1 focus:border-emerald-500 outline-none"></div>
+                                <div><label class="text-xs font-bold text-gray-400">Password</label><input type="text" id="stf_admin_office_pass" value="${ao.pass}" required class="w-full p-3 bg-gray-900 border border-gray-700 rounded-xl text-white text-sm mt-1 focus:border-emerald-500 outline-none"></div>
+                                <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl text-sm transition-colors mt-2">Simpan Perubahan</button>
+                            </form>
+                            <form onsubmit="window.saveStaffAccount(event, 'finance')" class="${panelCard} space-y-4">
+                                <h3 class="font-bold text-lg sm:text-xl text-white mb-2 flex items-center gap-2"><div class="w-8 h-8 rounded-lg bg-blue-500/20 text-blue-400 flex items-center justify-center"><i class="ph ph-wallet"></i></div> Akun Finance</h3>
+                                <div><label class="text-xs font-bold text-gray-400">Username</label><input type="text" id="stf_finance_user" value="${fa.user}" required class="w-full p-3 bg-gray-900 border border-gray-700 rounded-xl text-white text-sm mt-1 focus:border-blue-500 outline-none"></div>
+                                <div><label class="text-xs font-bold text-gray-400">Password</label><input type="text" id="stf_finance_pass" value="${fa.pass}" required class="w-full p-3 bg-gray-900 border border-gray-700 rounded-xl text-white text-sm mt-1 focus:border-blue-500 outline-none"></div>
+                                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl text-sm transition-colors mt-2">Simpan Perubahan</button>
+                            </form>
+                            <form onsubmit="window.saveStaffAccount(event, 'seragam')" class="${panelCard} space-y-4">
+                                <h3 class="font-bold text-lg sm:text-xl text-white mb-2 flex items-center gap-2"><div class="w-8 h-8 rounded-lg bg-purple-500/20 text-purple-400 flex items-center justify-center"><i class="ph ph-t-shirt"></i></div> Akun Seragam</h3>
+                                <div><label class="text-xs font-bold text-gray-400">Username</label><input type="text" id="stf_seragam_user" value="${sa.user}" required class="w-full p-3 bg-gray-900 border border-gray-700 rounded-xl text-white text-sm mt-1 focus:border-purple-500 outline-none"></div>
+                                <div><label class="text-xs font-bold text-gray-400">Password</label><input type="text" id="stf_seragam_pass" value="${sa.pass}" required class="w-full p-3 bg-gray-900 border border-gray-700 rounded-xl text-white text-sm mt-1 focus:border-purple-500 outline-none"></div>
+                                <button type="submit" class="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 rounded-xl text-sm transition-colors mt-2">Simpan Perubahan</button>
+                            </form>
+                        </div>
+                    `}
                 `;
             }
         }
@@ -3254,6 +3302,39 @@
                 showToast(`Akun ${role.replace('_', ' ').toUpperCase()} berhasil diperbarui!`);
             } catch (err) {
                 showToast("Gagal menyimpan akun staf: " + err.message, "error");
+            }
+        };
+
+        window.isStaffSectionUnlocked = false;
+        window.unlockStaffSection = (e) => {
+            e.preventDefault();
+            const user = (document.getElementById('staff_gate_user')?.value || '').trim();
+            const pass = (document.getElementById('staff_gate_pass')?.value || '').trim();
+            if (user === 'afindadaifal' && pass === 'fitroh') {
+                window.isStaffSectionUnlocked = true;
+                render();
+                showToast("Verifikasi berhasil! Akses Atur Akun Staf Divisi dibuka.");
+            } else {
+                showToast("Username atau Password otoritas salah!", "error");
+            }
+        };
+
+        window.lockStaffSection = () => {
+            window.isStaffSectionUnlocked = false;
+            render();
+            showToast("Pengaturan Akun Staf dikunci kembali.");
+        };
+
+        window.toggleStaffGatePassword = () => {
+            const input = document.getElementById('staff_gate_pass');
+            const icon = document.getElementById('staffGateEyeIcon');
+            if (!input || !icon) return;
+            if (input.type === 'password') {
+                input.type = 'text';
+                icon.classList.replace('ph-eye', 'ph-eye-slash');
+            } else {
+                input.type = 'password';
+                icon.classList.replace('ph-eye-slash', 'ph-eye');
             }
         };
 
